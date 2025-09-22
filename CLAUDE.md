@@ -1,6 +1,104 @@
-# CLAUDE.sessions.md
+# BuenaLive Automation CLAUDE.md
 
-This file provides collaborative guidance and philosophy when using the Claude Code Sessions system.
+## Purpose
+Automated ticket purchasing system for BuenaLive events with secure credential management and GUI interface.
+
+## Architecture Overview
+Single-purpose Python application that combines web automation, credential management, and Google Sheets integration. The application provides both GUI and headless modes for ticket purchasing automation.
+
+## Module Structure
+- `main.py` - Main application with GUI and automation core
+- `credential_manager.py` - Secure credential storage and encryption
+- `credentials.json` - Google Sheets API credentials
+- `sessions/` - Claude Code session management
+
+## Key Components
+
+### Main Application (main.py)
+- `TicketAutomation:21-622` - Core automation engine
+  - Web scraping with Selenium WebDriver
+  - Event detection and ticket purchasing
+  - Google Sheets integration for data tracking
+- `AutomationGUI:623-900+` - Tkinter-based user interface
+  - Credential input with auto-save functionality
+  - Event selection and automation controls
+  - Real-time logging and status updates
+
+### Credential Manager (credential_manager.py)
+- `CredentialManager:10-115` - Secure credential handling
+  - Automatic encryption using Fernet (cryptography library)
+  - User/machine/app-specific key generation
+  - Transparent save/load functionality
+  - Credential validation and updates
+
+## Key Features
+
+### Security Implementation
+- Transparent credential encryption with user-specific keys
+- Automatic credential detection and loading
+- Secure file storage in user home directory
+- Machine-specific encryption keys prevent credential sharing
+
+### Automation Capabilities
+- Chrome WebDriver automation with headless mode support
+- Event detection and ticket availability monitoring
+- Automated purchasing with form filling
+- Google Sheets logging for purchase tracking
+
+### User Interface
+- Credential management with save/clear options
+- Event selection from detected available events
+- Real-time automation status and logging
+- Headless mode toggle for production use
+
+## Integration Points
+
+### External Dependencies
+- `selenium` - Web automation framework
+- `cryptography` - Credential encryption
+- `gspread` - Google Sheets API client
+- `tkinter` - GUI framework
+- `google-oauth2` - Google authentication
+
+### File Dependencies
+- `credentials.json` - Google Sheets service account credentials
+- User home directory encrypted credential storage
+- Chrome WebDriver executable
+
+## Configuration
+
+### Required Setup
+- Chrome browser and ChromeDriver installation
+- Google Sheets API credentials file
+- Target website access credentials
+
+### Environment Variables
+- No environment variables required (uses file-based configuration)
+
+### Credential Storage
+- Location: `~/.buena-live_{username}_{project}/user_credentials.enc`
+- Encryption: Fernet with SHA256-derived keys
+- Scope: User/machine/project specific
+
+## Usage Patterns
+
+### GUI Mode
+- Launch application through main.py execution
+- Input credentials with optional auto-save
+- Select events and configure automation parameters
+- Monitor real-time logging during automation
+
+### Headless Mode
+- Set `headless_mode=True` in TicketAutomation initialization
+- Suitable for production/server deployment
+- Faster execution without browser window
+
+## Related Documentation
+- sessions/ - Claude Code session management and protocols
+
+# Session Management
+
+This section provides collaborative guidance for Claude Code Sessions.
 
 ## Collaboration Philosophy
 

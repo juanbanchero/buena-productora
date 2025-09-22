@@ -1,4 +1,30 @@
-# main.py - Versión completa con flujo corregido y modo headless
+"""
+BuenaLive automation main application with GUI and headless ticket purchasing.
+
+This module provides the core automation engine for BuenaLive ticket purchasing
+with a Tkinter-based GUI interface. Integrates web automation, credential management,
+and Google Sheets tracking for comprehensive ticket automation.
+
+Key classes:
+    - TicketAutomation: Core automation engine with Selenium WebDriver
+    - AutomationGUI: Tkinter-based user interface with credential management
+
+Key features:
+    - Web automation for ticket detection and purchasing
+    - Secure credential management with automatic encryption
+    - Google Sheets integration for purchase tracking
+    - Both GUI and headless operation modes
+    - Real-time logging and status monitoring
+
+Integration points:
+    - Uses CredentialManager for secure credential storage
+    - Connects to Google Sheets via gspread for data logging
+    - Controls Chrome WebDriver for web automation
+
+See Also:
+    - credential_manager.py: Secure credential handling
+    - credentials.json: Google Sheets API service account
+"""
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 import threading
@@ -16,6 +42,7 @@ import os
 from datetime import datetime
 import sys
 import re
+from credential_manager import CredentialManager
 
 class TicketAutomation:
     def __init__(self, headless_mode=False):
@@ -626,6 +653,7 @@ class AutomationGUI:
         self.root.geometry("700x700")
         self.automation = None
         self.available_events = []
+        self.credential_manager = CredentialManager()
         self.setup_ui()
         
     def setup_ui(self):
@@ -636,10 +664,23 @@ class AutomationGUI:
         ttk.Label(cred_frame, text="Email:").grid(row=0, column=0, sticky="w", pady=5)
         self.email_entry = ttk.Entry(cred_frame, width=40)
         self.email_entry.grid(row=0, column=1, pady=5)
-        
+
         ttk.Label(cred_frame, text="Contraseña:").grid(row=1, column=0, sticky="w", pady=5)
         self.password_entry = ttk.Entry(cred_frame, width=40, show="*")
         self.password_entry.grid(row=1, column=1, pady=5)
+
+        # Checkbox para guardar credenciales
+        self.save_credentials_var = tk.BooleanVar()
+        self.save_credentials_checkbox = ttk.Checkbutton(
+            cred_frame,
+            text="Guardar credenciales",
+            variable=self.save_credentials_var,
+            command=self.on_save_credentials_toggle
+        )
+        self.save_credentials_checkbox.grid(row=2, column=1, sticky="w", pady=5)
+
+        # Auto-cargar credenciales si existen
+        self.load_saved_credentials()
         
         # Frame de Google Sheets
         sheet_frame = ttk.LabelFrame(self.root, text="Google Sheets", padding="10")
@@ -703,6 +744,24 @@ class AutomationGUI:
         self.automation.log("4. Los eventos se cargarán automáticamente")
         self.automation.log("5. Seleccioná el evento y hacé click en 'Iniciar Procesamiento'")
         self.automation.log("=====================\n")
+
+    def load_saved_credentials(self):
+        """Carga automáticamente las credenciales guardadas al startup"""
+        email, password = self.credential_manager.load_credentials()
+        if email and password:
+            self.email_entry.insert(0, email)
+            self.password_entry.insert(0, password)
+            self.save_credentials_var.set(True)
+            if self.automation:
+                self.automation.log("✓ Credenciales guardadas cargadas automáticamente")
+
+    def on_save_credentials_toggle(self):
+        """Maneja el toggle del checkbox de guardar credenciales"""
+        if not self.save_credentials_var.get():
+            # Si el usuario desmarca, eliminar credenciales guardadas
+            self.credential_manager.clear_credentials()
+            if self.automation:
+                self.automation.log("✓ Credenciales eliminadas")
     
     def connect_systems(self):
         """Conecta con el sistema y Google Sheets"""
@@ -744,7 +803,12 @@ class AutomationGUI:
             if not self.automation.login(email, password):
                 messagebox.showerror("Error", "No se pudo hacer login")
                 return
-                
+
+            # Guardar credenciales automáticamente después de login exitoso
+            if self.save_credentials_var.get():
+                if self.credential_manager.update_credentials_if_changed(email, password):
+                    self.automation.log("✓ Credenciales guardadas automáticamente")
+
             if not self.automation.connect_google_sheets(sheet_url):
                 messagebox.showerror("Error", "No se pudo conectar a Google Sheets")
                 return
