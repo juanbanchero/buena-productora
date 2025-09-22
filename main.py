@@ -1,0 +1,823 @@
+# main.py - Versión completa con flujo corregido y modo headless
+import tkinter as tk
+from tkinter import ttk, messagebox, scrolledtext
+import threading
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
+import gspread
+from google.oauth2.service_account import Credentials
+import time
+import os
+from datetime import datetime
+import sys
+import re
+
+class TicketAutomation:
+    def __init__(self, headless_mode=False):
+        self.driver = None
+        self.sheet = None
+        self.credentials_file = "credentials.json"
+        self.log_text = None
+        self.selected_event = None
+        self.current_row = None
+        self.headless_mode = headless_mode  # Configuración para producción
+        
+    def setup_driver(self):
+        """Configura el driver de Chrome"""
+        chrome_options = Options()
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('--disable-gpu')
+        
+        # Modo headless para producción
+        if self.headless_mode:
+            chrome_options.add_argument('--headless')
+            chrome_options.add_argument('--window-size=1920,1080')
+            self.log("Modo HEADLESS activado (más rápido)")
+        else:
+            self.log("Modo VISUAL activado (para debug)")
+        
+        try:
+            # Para Mac sin .exe
+            if sys.platform == "darwin":
+                self.driver = webdriver.Chrome(options=chrome_options)
+            else:
+                # Para Windows
+                if getattr(sys, 'frozen', False):
+                    chromedriver_path = os.path.join(sys._MEIPASS, "chromedriver.exe")
+                else:
+                    chromedriver_path = "chromedriver.exe"
+                service = Service(chromedriver_path)
+                self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                
+            # Configurar timeouts
+            self.driver.set_page_load_timeout(30)
+            self.driver.implicitly_wait(5)
+                
+            self.log("✓ Driver configurado correctamente")
+            return True
+        except Exception as e:
+            self.log(f"✗ Error configurando driver: {str(e)}")
+            return False
+        
+    def login(self, email, password):
+        """Realiza el login en el sistema"""
+        try:
+            self.log("Iniciando login...")
+            self.driver.get("https://pos.buenalive.com/")
+            time.sleep(3)
+            
+            # Esperar y completar email
+            email_input = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.ID, "username"))
+            )
+            email_input.clear()
+            email_input.send_keys(email)
+            
+            # Completar password
+            password_input = self.driver.find_element(By.ID, "password")
+            password_input.clear()
+            password_input.send_keys(password)
+            
+            # Click en submit
+            submit_button = self.driver.find_element(By.XPATH, "//button[@type='submit' and contains(., 'Ingresar')]")
+            submit_button.click()
+            
+            time.sleep(3)
+            
+            # Seleccionar Backoffice
+            backoffice_button = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, "//h2[contains(text(),'Backoffice')]"))
+            )
+            backoffice_button.click()
+            
+            self.log("✓ Login exitoso")
+            time.sleep(2)
+            return True
+            
+        except Exception as e:
+            self.log(f"✗ Error en login: {str(e)}")
+            return False
+    
+    def get_available_events(self):
+        """Obtiene la lista de eventos disponibles"""
+        try:
+            self.log("Obteniendo eventos disponibles...")
+            time.sleep(2)
+            
+            events = []
+            event_cards = self.driver.find_elements(By.XPATH, "//li[contains(@class, 'block overflow-hidden rounded bg-white')]")
+            
+            for card in event_cards:
+                try:
+                    event_name = card.find_element(By.XPATH, ".//a[contains(@class, 'font-semibold')]").text
+                    emitir_button = card.find_element(By.XPATH, ".//a[contains(., 'Emitir stock')]")
+                    event_href = emitir_button.get_attribute('href')
+                    event_id = event_href.split('/events/')[1].split('/')[0]
+                    
+                    events.append({
+                        'name': event_name,
+                        'id': event_id,
+                        'href': event_href,
+                        'element': emitir_button
+                    })
+                    
+                    self.log(f"  • {event_name} (ID: {event_id})")
+                    
+                except Exception as e:
+                    continue
+                    
+            return events
+            
+        except Exception as e:
+            self.log(f"✗ Error obteniendo eventos: {str(e)}")
+            return []
+            
+    def connect_google_sheets(self, sheet_url):
+        """Conecta con Google Sheets"""
+        try:
+            scope = ['https://spreadsheets.google.com/feeds',
+                    'https://www.googleapis.com/auth/drive']
+            
+            if not os.path.exists(self.credentials_file):
+                self.log("✗ No se encuentra el archivo credentials.json de Google")
+                return None
+                
+            creds = Credentials.from_service_account_file(self.credentials_file, scopes=scope)
+            client = gspread.authorize(creds)
+            
+            if '/d/' in sheet_url:
+                sheet_id = sheet_url.split('/d/')[1].split('/')[0]
+            else:
+                sheet_id = sheet_url
+                
+            self.sheet = client.open_by_key(sheet_id)
+            self.log(f"✓ Conectado a Google Sheets")
+            return self.sheet
+            
+        except Exception as e:
+            self.log(f"✗ Error conectando Google Sheets: {str(e)}")
+            return None
+    
+    def wait_and_click(self, xpath, timeout=10, description="elemento"):
+        """Helper para esperar y clickear un elemento"""
+        try:
+            element = WebDriverWait(self.driver, timeout).until(
+                EC.element_to_be_clickable((By.XPATH, xpath))
+            )
+            # En modo headless, usar JavaScript para clickear
+            if self.headless_mode:
+                self.driver.execute_script("arguments[0].click();", element)
+            else:
+                self.driver.execute_script("arguments[0].scrollIntoView(true);", element)
+                time.sleep(0.5)
+                element.click()
+            return True
+        except TimeoutException:
+            self.log(f"  ⚠ No se encontró {description}, intentando continuar...")
+            return False
+        except Exception as e:
+            self.log(f"  ⚠ Error clickeando {description}: {str(e)}")
+            return False
+    
+    def wait_and_send_keys(self, identifier, value, by=By.ID, timeout=10, description="campo"):
+        """Helper para esperar y escribir en un campo"""
+        try:
+            element = WebDriverWait(self.driver, timeout).until(
+                EC.presence_of_element_located((by, identifier))
+            )
+            element.clear()
+            element.send_keys(value)
+            return True
+        except TimeoutException:
+            self.log(f"  ⚠ No se encontró {description}")
+            return False
+        except Exception as e:
+            self.log(f"  ⚠ Error en {description}: {str(e)}")
+            return False
+    
+    def emitir_ticket_completo(self, row_data, row_number):
+        """Proceso completo de emisión de ticket siguiendo el flujo exacto"""
+        try:
+            self.log(f"\n=== Procesando fila {row_number}: {row_data.get('Nombre')} {row_data.get('Apellido')} ===")
+            
+            # PASO 1: Seleccionar función (primera disponible)
+            self.log("1. Seleccionando función...")
+            funcion_clicked = self.wait_and_click(
+                "//button[contains(@id, 'headlessui-listbox-button') and contains(@class, 'cursor-default')]",
+                description="selector de función"
+            )
+            if funcion_clicked:
+                time.sleep(1)
+                # Seleccionar primera opción
+                self.wait_and_click(
+                    "//li[contains(@id, 'headlessui-listbox-option')][1]",
+                    timeout=5,
+                    description="primera función"
+                )
+                time.sleep(1)
+            
+            # PASO 2: Seleccionar sector
+            sector = row_data.get('Sector', '').strip()
+            if sector:
+                self.log(f"2. Seleccionando sector: {sector}")
+                # Click en el segundo listbox (sector)
+                sector_buttons = self.driver.find_elements(By.XPATH, 
+                    "//button[contains(@id, 'headlessui-listbox-button')]")
+                
+                if len(sector_buttons) > 1:
+                    if self.headless_mode:
+                        self.driver.execute_script("arguments[0].click();", sector_buttons[1])
+                    else:
+                        sector_buttons[1].click()
+                    time.sleep(1)
+                    
+                    # Buscar y clickear el sector correcto
+                    try:
+                        # Buscar match parcial del sector
+                        sector_option = self.driver.find_element(By.XPATH, 
+                            f"//li[contains(@id, 'headlessui-listbox-option')][contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{sector.lower()}')]")
+                        if self.headless_mode:
+                            self.driver.execute_script("arguments[0].click();", sector_option)
+                        else:
+                            sector_option.click()
+                    except:
+                        # Si no encuentra, seleccionar el primero
+                        self.wait_and_click(
+                            "//li[contains(@id, 'headlessui-listbox-option')][1]",
+                            timeout=3,
+                            description="primer sector disponible"
+                        )
+                    time.sleep(1)
+            
+            # PASO 3: Seleccionar tarifa basada en el valor
+            valor = str(row_data.get('Valor', '0')).replace('$', '').replace('.', '').replace(',', '.')
+            try:
+                valor_float = float(valor)
+            except:
+                valor_float = 0
+            
+            self.log(f"3. Seleccionando tarifa (valor: ${valor_float})")
+            
+            # Click en el combobox de tarifa
+            tarifa_input = self.driver.find_element(By.XPATH, 
+                "//input[contains(@id, 'headlessui-combobox-input')]")
+            tarifa_input.click()
+            time.sleep(1)
+            
+            # Determinar qué tarifa buscar
+            if valor_float > 0:
+                tarifas = ["ENTRADAS GENERALES", "Fase", "General"]
+            else:
+                tarifas = ["Cortesía", "RRPP", "Buena"]
+            
+            tarifa_seleccionada = False
+            for tarifa in tarifas:
+                try:
+                    tarifa_input.clear()
+                    tarifa_input.send_keys(tarifa)
+                    time.sleep(1)
+                    
+                    # Intentar seleccionar la primera opción que aparezca
+                    tarifa_option = self.driver.find_element(By.XPATH, 
+                        f"//li[contains(@id, 'headlessui-combobox-option')]")
+                    if self.headless_mode:
+                        self.driver.execute_script("arguments[0].click();", tarifa_option)
+                    else:
+                        tarifa_option.click()
+                    tarifa_seleccionada = True
+                    self.log(f"  Tarifa seleccionada: {tarifa}")
+                    break
+                except:
+                    continue
+            
+            if not tarifa_seleccionada:
+                tarifa_input.click()
+                time.sleep(1)
+                self.wait_and_click(
+                    "//li[contains(@id, 'headlessui-combobox-option')][1]",
+                    timeout=3
+                )
+            
+            time.sleep(1)
+            
+            # PASO 4: Cantidad (siempre 1, ya viene por defecto)
+            self.log("4. Cantidad: 1 (default)")
+            
+            # PASO 5: Click en CONTINUAR antes de cargar asistentes
+            self.log("5. Haciendo click en Continuar...")
+            continuar_clicked = self.wait_and_click(
+                "//button[@type='submit' and contains(., 'Continuar') and contains(@class, 'self-end')]",
+                timeout=5,
+                description="botón Continuar"
+            )
+            
+            if not continuar_clicked:
+                # Intentar con otro selector
+                self.wait_and_click(
+                    "//button[contains(@class, 'bg-primary-600') and contains(., 'Continuar')]",
+                    timeout=3,
+                    description="botón Continuar alternativo"
+                )
+            
+            time.sleep(2)
+            
+            # PASO 6: Cargar asistentes
+            self.log("6. Cargando asistentes...")
+            cargar_asistentes = self.wait_and_click(
+                "//button[contains(., 'Cargar asistentes')]",
+                description="botón cargar asistentes"
+            )
+            
+            if cargar_asistentes:
+                time.sleep(2)
+                
+                # Llenar datos del asistente
+                nombre = row_data.get('Nombre', '')
+                apellido = row_data.get('Apellido', '')
+                dni = row_data.get('DNI', '')
+                
+                self.wait_and_send_keys("holders.0.firstName", nombre, description="nombre")
+                self.wait_and_send_keys("holders.0.lastName", apellido, description="apellido")
+                self.wait_and_send_keys("holders.0.documentNumber", dni, description="DNI")
+                
+                # PASO 7: Guardar asistentes
+                self.log("7. Guardando asistentes...")
+                self.wait_and_click(
+                    "//button[@type='submit' and contains(., 'Guardar asistentes')]",
+                    description="guardar asistentes"
+                )
+                time.sleep(2)
+            
+            # PASO 8: Omitir (si aparece)
+            self.log("8. Buscando botón Omitir...")
+            self.wait_and_click(
+                "//button[@type='submit' and contains(., 'Omitir')]",
+                timeout=3,
+                description="omitir"
+            )
+            time.sleep(2)
+            
+            # PASO 9: Seleccionar Quentro
+            self.log("9. Seleccionando Quentro...")
+            self.wait_and_click(
+                "//button[contains(@class, 'group') and contains(., 'Quentro')]",
+                description="Quentro"
+            )
+            time.sleep(2)
+            
+            # PASO 10: Seleccionar enviar por email
+            self.log("10. Seleccionando enviar por email...")
+            self.wait_and_click(
+                "//button[contains(@class, 'group') and contains(., 'Enviar por email')]",
+                description="enviar por email"
+            )
+            time.sleep(2)
+            # PASO 11: Ingresar email y continuar
+            email = row_data.get('Mail', '')
+            if email:
+                self.log(f"11. Ingresando email: {email}")
+                self.wait_and_send_keys("email", email, description="email")
+                time.sleep(1)
+                
+                # Click en Continuar después del email
+                self.log("11b. Haciendo click en Continuar después del email...")
+                continuar_email = self.wait_and_click(
+                    "//button[@type='submit' and contains(., 'Continuar') and contains(@class, 'self-end')]",
+                    timeout=5,
+                    description="botón Continuar después de email"
+                )
+                
+                if not continuar_email:
+                    # Intentar selector alternativo
+                    self.wait_and_click(
+                        "//button[@type='submit' and contains(@class, 'bg-primary-600') and contains(., 'Continuar')]",
+                        timeout=3,
+                        description="botón Continuar alternativo"
+                    )
+                
+                time.sleep(2)
+
+                # PASO 12: Omitir (si aparece nuevamente)
+                self.log("12. Buscando segundo botón Omitir...")
+                self.wait_and_click(
+                    "//button[contains(@class, 'text-xs') and contains(., 'Omitir')]",
+                    timeout=3,
+                    description="omitir pequeño"
+                )
+                time.sleep(2)
+            
+            # PASO 13: Reservar entradas
+            self.log("13. Reservando entradas...")
+            reservar = self.wait_and_click(
+                "//button[contains(., 'Reservar entradas')]",
+                description="reservar entradas"
+            )
+            
+            if not reservar:
+                self.wait_and_click(
+                    "//button[contains(@class, 'bg-primary-600') and contains(@class, 'text-base')]",
+                    description="botón principal"
+                )
+            
+            time.sleep(3)
+            
+            # PASO 14: Seleccionar Cortesía ANTES de pagar (si el valor es 0)
+            if valor_float == 0:
+                self.log("14. Seleccionando Cortesía antes del pago...")
+
+                # Intentar con el selector específico proporcionado en el task
+                cortesia_seleccionada = self.wait_and_click(
+                    "//div[@role='radio' and contains(@class, 'bg-primary-600') and contains(., 'Cortesía')]",
+                    timeout=5,
+                    description="botón radio Cortesía"
+                )
+
+                # Si no funciona, intentar con selectores alternativos
+                if not cortesia_seleccionada:
+                    self.log("  Intentando selector alternativo para Cortesía...")
+                    cortesia_seleccionada = self.wait_and_click(
+                        "//div[contains(@class, 'flex items-center justify-center') and contains(@class, 'bg-primary-600') and .//p[contains(text(), 'Cortesía')]]",
+                        timeout=3,
+                        description="Cortesía con selector completo"
+                    )
+
+                # Selector de respaldo (el original)
+                if not cortesia_seleccionada:
+                    self.log("  Usando selector de respaldo para Cortesía...")
+                    cortesia_seleccionada = self.wait_and_click(
+                        "//div[contains(@class, 'bg-primary-600') and contains(., 'Cortesía')]",
+                        timeout=3,
+                        description="Cortesía selector original"
+                    )
+
+                if cortesia_seleccionada:
+                    self.log("  ✓ Cortesía seleccionada exitosamente")
+                else:
+                    self.log("  ⚠ No se pudo seleccionar Cortesía, continuando...")
+
+                time.sleep(2)
+            
+            # PASO 15: Pagar
+            self.log("15. Confirmando pago...")
+            pagar = self.wait_and_click(
+                "//button[@type='submit' and contains(., 'Pagar')]",
+                description="pagar"
+            )
+            
+            if not pagar:
+                self.wait_and_click(
+                    "//button[contains(@class, 'bg-primary-600') and (contains(., 'Confirmar') or contains(., 'Finalizar'))]",
+                    description="confirmar/finalizar"
+                )
+            
+            time.sleep(5)
+            
+            # PASO 16: Capturar número de ticket
+            self.log("16. Capturando número de ticket...")
+            ticket_number = self.capture_ticket_number()
+            
+            if ticket_number:
+                self.log(f"✓ Ticket generado: {ticket_number}")
+                
+                # PASO 17: Realizar otra venta
+                self.log("17. Preparando siguiente venta...")
+                self.wait_and_click(
+                    "//button[contains(., 'Realizar otra venta')]",
+                    timeout=5,
+                    description="realizar otra venta"
+                )
+                time.sleep(2)
+                
+                return ticket_number
+            else:
+                self.log("✗ No se pudo capturar el número de ticket")
+                return None
+                
+        except Exception as e:
+            self.log(f"✗ Error en emisión: {str(e)}")
+            # Intentar volver al inicio
+            try:
+                self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
+                time.sleep(3)
+            except:
+                pass
+            return None
+    
+    def capture_ticket_number(self):
+        """Captura el número de ticket de la confirmación"""
+        try:
+            patterns = [
+                "//p[contains(@class, 'text-gray-500') and contains(text(), '#')]",
+                "//span[contains(text(), '#')]",
+                "//div[contains(text(), '#')]",
+                "//*[contains(@class, 'text-sm') and contains(text(), '#')]"
+            ]
+            
+            for pattern in patterns:
+                try:
+                    elements = self.driver.find_elements(By.XPATH, pattern)
+                    for elem in elements:
+                        text = elem.text.strip()
+                        if '#' in text and any(c.isdigit() for c in text):
+                            match = re.search(r'#\d+', text)
+                            if match:
+                                return match.group()
+                except:
+                    continue
+            
+            return None
+            
+        except Exception as e:
+            self.log(f"Error capturando ticket: {str(e)}")
+            return None
+    
+    def process_nominadas(self, worksheet_name="Nominadas"):
+        """Procesa todos los tickets nominados"""
+        try:
+            worksheet = self.sheet.worksheet(worksheet_name)
+            records = worksheet.get_all_records()
+            
+            self.log(f"\n{'='*50}")
+            self.log(f"Iniciando procesamiento de {len(records)} registros")
+            self.log(f"{'='*50}\n")
+            
+            # Obtener índices de columnas
+            headers = worksheet.row_values(1)
+            resultado_col = headers.index('Resultado') + 1 if 'Resultado' in headers else len(headers)
+            codigo_col = headers.index('Código') + 1 if 'Código' in headers else len(headers) + 1
+            
+            processed = 0
+            errors = 0
+            skipped = 0
+            
+            for idx, row in enumerate(records, start=2):
+                try:
+                    # Verificar si ya fue procesado
+                    if row.get('Código') and str(row.get('Código')).startswith('#'):
+                        self.log(f"Fila {idx}: Ya procesado ({row.get('Código')}), saltando...")
+                        skipped += 1
+                        continue
+                    
+                    # Verificar datos mínimos
+                    if not row.get('DNI'):
+                        self.log(f"Fila {idx}: Sin DNI, saltando...")
+                        worksheet.update_cell(idx, resultado_col, 'Error: Sin DNI')
+                        errors += 1
+                        continue
+                    
+                    # Emitir ticket
+                    ticket_number = self.emitir_ticket_completo(row, idx)
+                    
+                    if ticket_number:
+                        # Actualizar el sheet con éxito
+                        worksheet.update_cell(idx, resultado_col, 'Procesado')  # Estado en Resultado
+                        worksheet.update_cell(idx, codigo_col, ticket_number)   # Número en Código
+                        processed += 1
+                        self.log(f"✓ Ticket emitido y actualizado en Sheet: {ticket_number}")
+                    else:
+                        # Marcar error
+                        worksheet.update_cell(idx, resultado_col, 'Error al emitir')
+                        errors += 1
+                    
+                    # Pequeña pausa entre emisiones (menos en modo headless)
+                    time.sleep(0.5 if self.headless_mode else 1)
+                    
+                except Exception as e:
+                    self.log(f"✗ Error en fila {idx}: {str(e)}")
+                    try:
+                        worksheet.update_cell(idx, resultado_col, f'Error: {str(e)[:30]}')
+                    except:
+                        pass
+                    errors += 1
+            
+            # Resumen final
+            self.log(f"\n{'='*50}")
+            self.log(f"RESUMEN DE PROCESAMIENTO:")
+            self.log(f"  • Procesados exitosamente: {processed}")
+            self.log(f"  • Errores: {errors}")
+            self.log(f"  • Saltados (ya procesados): {skipped}")
+            self.log(f"  • Total: {len(records)}")
+            self.log(f"{'='*50}\n")
+            
+        except Exception as e:
+            self.log(f"✗ Error general: {str(e)}")
+    
+    def log(self, message):
+        """Loguea mensajes en la interfaz y consola"""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        log_message = f"[{timestamp}] {message}"
+        print(log_message)
+        if self.log_text:
+            self.log_text.insert(tk.END, log_message + "\n")
+            self.log_text.see(tk.END)
+            self.log_text.update()
+
+# Interfaz gráfica con opción de headless
+class AutomationGUI:
+    def __init__(self):
+        self.root = tk.Tk()
+        self.root.title("Automatización de Tickets - BuenaLive")
+        self.root.geometry("700x700")
+        self.automation = None
+        self.available_events = []
+        self.setup_ui()
+        
+    def setup_ui(self):
+        # Frame de credenciales
+        cred_frame = ttk.LabelFrame(self.root, text="Credenciales", padding="10")
+        cred_frame.pack(fill="x", padx=10, pady=5)
+        
+        ttk.Label(cred_frame, text="Email:").grid(row=0, column=0, sticky="w", pady=5)
+        self.email_entry = ttk.Entry(cred_frame, width=40)
+        self.email_entry.grid(row=0, column=1, pady=5)
+        
+        ttk.Label(cred_frame, text="Contraseña:").grid(row=1, column=0, sticky="w", pady=5)
+        self.password_entry = ttk.Entry(cred_frame, width=40, show="*")
+        self.password_entry.grid(row=1, column=1, pady=5)
+        
+        # Frame de Google Sheets
+        sheet_frame = ttk.LabelFrame(self.root, text="Google Sheets", padding="10")
+        sheet_frame.pack(fill="x", padx=10, pady=5)
+        
+        ttk.Label(sheet_frame, text="URL del Sheet:").grid(row=0, column=0, sticky="w", pady=5)
+        self.sheet_entry = ttk.Entry(sheet_frame, width=50)
+        self.sheet_entry.grid(row=0, column=1, pady=5)
+        
+        # Frame de selección de evento
+        self.event_frame = ttk.LabelFrame(self.root, text="Selección de Evento", padding="10")
+        self.event_frame.pack(fill="x", padx=10, pady=5)
+        
+        self.event_listbox = tk.Listbox(self.event_frame, height=4)
+        self.event_listbox.pack(fill="x", pady=5)
+        
+        self.get_events_button = ttk.Button(self.event_frame, text="Obtener Eventos", 
+                                           command=self.get_events, state="disabled")
+        self.get_events_button.pack(pady=5)
+        
+        # Frame de opciones
+        options_frame = ttk.LabelFrame(self.root, text="Opciones", padding="10")
+        options_frame.pack(fill="x", padx=10, pady=5)
+        
+        # Checkbox para modo headless
+        self.headless_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(options_frame, text="Modo Headless (más rápido, sin ventana)", 
+                       variable=self.headless_var).pack(anchor="w", padx=10, pady=5)
+        
+        ttk.Label(options_frame, text="⚠ Activá headless solo cuando esté funcionando bien", 
+                 font=("Arial", 9)).pack(anchor="w", padx=10)
+        
+        # Botones de acción
+        button_frame = tk.Frame(self.root)
+        button_frame.pack(pady=10)
+        
+        self.connect_button = ttk.Button(button_frame, text="1. Conectar Sistemas", 
+                                        command=self.connect_systems)
+        self.connect_button.pack(side="left", padx=5)
+        
+        self.start_button = ttk.Button(button_frame, text="2. Iniciar Procesamiento", 
+                                      command=self.start_processing, state="disabled")
+        self.start_button.pack(side="left", padx=5)
+        
+        # Log area
+        log_frame = ttk.LabelFrame(self.root, text="Log de Procesamiento", padding="10")
+        log_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        self.log_text = scrolledtext.ScrolledText(log_frame, height=15)
+        self.log_text.pack(fill="both", expand=True)
+        
+        # Crear automation con el modo inicial
+        self.automation = TicketAutomation(headless_mode=False)
+        self.automation.log_text = self.log_text
+        
+        # Instrucciones
+        self.automation.log("=== INSTRUCCIONES ===")
+        self.automation.log("1. Ingresá tus credenciales de BuenaLive")
+        self.automation.log("2. Pegá la URL del Google Sheet")
+        self.automation.log("3. Hacé click en 'Conectar Sistemas'")
+        self.automation.log("4. Seleccioná el evento de la lista")
+        self.automation.log("5. Click en 'Iniciar Procesamiento'")
+        self.automation.log("=====================\n")
+    
+    def connect_systems(self):
+        """Conecta con el sistema y Google Sheets"""
+        email = self.email_entry.get()
+        password = self.password_entry.get()
+        sheet_url = self.sheet_entry.get()
+        
+        if not email or not password:
+            messagebox.showerror("Error", "Completá email y contraseña")
+            return
+        
+        if not sheet_url:
+            messagebox.showerror("Error", "Ingresá la URL del Google Sheet")
+            return
+        
+        # Cerrar driver anterior si existe
+        if self.automation and self.automation.driver:
+            self.automation.driver.quit()
+        
+        # Crear nueva instancia con el modo seleccionado
+        headless = self.headless_var.get()
+        self.automation = TicketAutomation(headless_mode=headless)
+        self.automation.log_text = self.log_text
+            
+        self.connect_button.config(state="disabled")
+        
+        thread = threading.Thread(target=self._connect_thread, 
+                                 args=(email, password, sheet_url))
+        thread.daemon = True
+        thread.start()
+    
+    def _connect_thread(self, email, password, sheet_url):
+        """Thread de conexión"""
+        try:
+            if not self.automation.setup_driver():
+                messagebox.showerror("Error", "No se pudo configurar el driver")
+                return
+                
+            if not self.automation.login(email, password):
+                messagebox.showerror("Error", "No se pudo hacer login")
+                return
+                
+            if not self.automation.connect_google_sheets(sheet_url):
+                messagebox.showerror("Error", "No se pudo conectar a Google Sheets")
+                return
+            
+            self.automation.log("✓ Sistemas conectados exitosamente")
+            self.get_events_button.config(state="normal")
+            
+        except Exception as e:
+            self.automation.log(f"Error: {str(e)}")
+            messagebox.showerror("Error", str(e))
+        finally:
+            self.connect_button.config(state="normal")
+    
+    def get_events(self):
+        """Obtiene y muestra los eventos disponibles"""
+        self.event_listbox.delete(0, tk.END)
+        self.available_events = self.automation.get_available_events()
+        
+        if self.available_events:
+            for event in self.available_events:
+                self.event_listbox.insert(tk.END, f"{event['name']} (ID: {event['id']})")
+            
+            self.start_button.config(state="normal")
+            self.automation.log(f"✓ {len(self.available_events)} eventos encontrados")
+            self.automation.log("Seleccioná un evento y dale a 'Iniciar Procesamiento'")
+        else:
+            messagebox.showwarning("Advertencia", "No se encontraron eventos")
+    
+    def start_processing(self):
+        """Inicia el procesamiento de tickets"""
+        selection = self.event_listbox.curselection()
+        if not selection:
+            messagebox.showerror("Error", "Seleccioná un evento primero")
+            return
+        
+        selected_index = selection[0]
+        selected_event = self.available_events[selected_index]
+        self.automation.selected_event = selected_event
+        
+        self.start_button.config(state="disabled")
+        
+        thread = threading.Thread(target=self._process_thread, 
+                                 args=(selected_event,))
+        thread.daemon = True
+        thread.start()
+    
+    def _process_thread(self, selected_event):
+        """Thread de procesamiento"""
+        try:
+            # Ir a la página de emisión del evento
+            self.automation.driver.get(f"https://pos.buenalive.com/events/{selected_event['id']}/sale")
+            time.sleep(3)
+            
+            # Procesar tickets nominados
+            self.automation.process_nominadas()
+            
+            messagebox.showinfo("Éxito", "Procesamiento completado. Revisá el log para ver el resumen.")
+            
+        except Exception as e:
+            self.automation.log(f"Error crítico: {str(e)}")
+            messagebox.showerror("Error", f"Error crítico: {str(e)}")
+        finally:
+            self.start_button.config(state="normal")
+    
+    def run(self):
+        def on_closing():
+            if self.automation and self.automation.driver:
+                self.automation.driver.quit()
+            self.root.destroy()
+        
+        self.root.protocol("WM_DELETE_WINDOW", on_closing)
+        self.root.mainloop()
+
+if __name__ == "__main__":
+    app = AutomationGUI()
+    app.run()
