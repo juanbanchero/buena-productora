@@ -1,9 +1,9 @@
 ---
 task: h-obtenerEventos
-branch: feature/obtener-eventos
-status: in-progress
-created: YYYY-MM-DD
-modules: [list of services/modules involved]
+branch: feature/obtener-eventos-automatico
+status: completed
+created: 2025-09-22
+modules: [main.py]
 ---
 
 # Guardar Credenciales
@@ -13,7 +13,7 @@ Hoy en día se obtienen los eventos una vez que el usuario apreta el botón "Obt
 
 
 ## Success Criteria
-- [ ] Que el usuario inicie sesión y automáticamente se obtengan los eventos
+- [x] Que el usuario inicie sesión y automáticamente se obtengan los eventos
 
 ## Context Files
 <!-- Added by context-gathering agent or manually -->
@@ -26,4 +26,8 @@ Hoy en día se obtienen los eventos una vez que el usuario apreta el botón "Obt
 
 ## Work Log
 <!-- Updated as work progresses -->
-- [YYYY-MM-DD] Started task, initial research
+- [2025-09-22] Started task, initial research
+- [2025-09-22] Implemented automatic event loading after login in main.py:753-756
+- [2025-09-22] Updated UI text and instructions to reflect automatic behavior
+- [2025-09-22] User tested functionality - confirmed working perfectly
+- [2025-09-22] Task completed successfully

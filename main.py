@@ -656,7 +656,7 @@ class AutomationGUI:
         self.event_listbox = tk.Listbox(self.event_frame, height=4)
         self.event_listbox.pack(fill="x", pady=5)
         
-        self.get_events_button = ttk.Button(self.event_frame, text="Obtener Eventos", 
+        self.get_events_button = ttk.Button(self.event_frame, text="Refrescar Eventos",
                                            command=self.get_events, state="disabled")
         self.get_events_button.pack(pady=5)
         
@@ -700,8 +700,8 @@ class AutomationGUI:
         self.automation.log("1. Ingresá tus credenciales de BuenaLive")
         self.automation.log("2. Pegá la URL del Google Sheet")
         self.automation.log("3. Hacé click en 'Conectar Sistemas'")
-        self.automation.log("4. Seleccioná el evento de la lista")
-        self.automation.log("5. Click en 'Iniciar Procesamiento'")
+        self.automation.log("4. Los eventos se cargarán automáticamente")
+        self.automation.log("5. Seleccioná el evento y hacé click en 'Iniciar Procesamiento'")
         self.automation.log("=====================\n")
     
     def connect_systems(self):
@@ -750,6 +750,11 @@ class AutomationGUI:
                 return
             
             self.automation.log("✓ Sistemas conectados exitosamente")
+            self.automation.log("Obteniendo eventos automáticamente...")
+
+            # Obtener eventos automáticamente después del login exitoso
+            self.get_events()
+
             self.get_events_button.config(state="normal")
             
         except Exception as e:
