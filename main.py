@@ -55,17 +55,31 @@ class TicketAutomation:
         self.headless_mode = headless_mode  # Configuración para producción
         
     def setup_driver(self):
-        """Configura el driver de Chrome"""
+        """Configura el driver de Chrome con optimizaciones de performance"""
         chrome_options = Options()
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
         chrome_options.add_argument('--disable-gpu')
-        
+
+        # Optimizaciones de performance para procesamiento masivo
+        chrome_options.add_argument('--disable-extensions')
+        chrome_options.add_argument('--disable-plugins')
+        chrome_options.add_argument('--disable-images')
+        chrome_options.add_argument('--disable-javascript-harmony-shipping')
+        chrome_options.add_argument('--disable-background-timer-throttling')
+        chrome_options.add_argument('--disable-renderer-backgrounding')
+        chrome_options.add_argument('--disable-backgrounding-occluded-windows')
+        chrome_options.add_argument('--disable-client-side-phishing-detection')
+        chrome_options.add_argument('--disable-default-apps')
+        chrome_options.add_argument('--no-first-run')
+        chrome_options.add_argument('--disable-ipc-flooding-protection')
+        chrome_options.add_argument('--memory-pressure-off')
+
         # Modo headless para producción
         if self.headless_mode:
             chrome_options.add_argument('--headless')
             chrome_options.add_argument('--window-size=1920,1080')
-            self.log("Modo HEADLESS activado (más rápido)")
+            self.log("Modo HEADLESS OPTIMIZADO activado (máximo rendimiento)")
         else:
             self.log("Modo VISUAL activado (para debug)")
         
@@ -97,7 +111,6 @@ class TicketAutomation:
         try:
             self.log("Iniciando login...")
             self.driver.get("https://pos.buenalive.com/")
-            time.sleep(3)
             
             # Esperar y completar email
             email_input = WebDriverWait(self.driver, 10).until(
@@ -115,16 +128,18 @@ class TicketAutomation:
             submit_button = self.driver.find_element(By.XPATH, "//button[@type='submit' and contains(., 'Ingresar')]")
             submit_button.click()
             
-            time.sleep(3)
-            
             # Seleccionar Backoffice
             backoffice_button = WebDriverWait(self.driver, 10).until(
                 EC.element_to_be_clickable((By.XPATH, "//h2[contains(text(),'Backoffice')]"))
             )
             backoffice_button.click()
-            
+
+            # Verificar que el login fue exitoso esperando elemento del dashboard
+            WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, "//li[contains(@class, 'block overflow-hidden rounded bg-white')] | //div[contains(@class, 'grid')] | //main"))
+            )
+
             self.log("✓ Login exitoso")
-            time.sleep(2)
             return True
             
         except Exception as e:
@@ -135,7 +150,6 @@ class TicketAutomation:
         """Obtiene la lista de eventos disponibles"""
         try:
             self.log("Obteniendo eventos disponibles...")
-            time.sleep(2)
             
             events = []
             event_cards = self.driver.find_elements(By.XPATH, "//li[contains(@class, 'block overflow-hidden rounded bg-white')]")
@@ -191,8 +205,12 @@ class TicketAutomation:
             self.log(f"✗ Error conectando Google Sheets: {str(e)}")
             return None
     
-    def wait_and_click(self, xpath, timeout=10, description="elemento"):
-        """Helper para esperar y clickear un elemento"""
+    def wait_and_click(self, xpath, timeout=None, description="elemento"):
+        """Helper para esperar y clickear un elemento con timeout optimizado"""
+        # Timeout dinámico basado en modo headless (más rápido en headless)
+        if timeout is None:
+            timeout = 3 if self.headless_mode else 5
+
         try:
             element = WebDriverWait(self.driver, timeout).until(
                 EC.element_to_be_clickable((By.XPATH, xpath))
@@ -202,7 +220,6 @@ class TicketAutomation:
                 self.driver.execute_script("arguments[0].click();", element)
             else:
                 self.driver.execute_script("arguments[0].scrollIntoView(true);", element)
-                time.sleep(0.5)
                 element.click()
             return True
         except TimeoutException:
@@ -212,8 +229,12 @@ class TicketAutomation:
             self.log(f"  ⚠ Error clickeando {description}: {str(e)}")
             return False
     
-    def wait_and_send_keys(self, identifier, value, by=By.ID, timeout=10, description="campo"):
-        """Helper para esperar y escribir en un campo"""
+    def wait_and_send_keys(self, identifier, value, by=By.ID, timeout=None, description="campo"):
+        """Helper para esperar y escribir en un campo con timeout optimizado"""
+        # Timeout dinámico basado en modo headless
+        if timeout is None:
+            timeout = 3 if self.headless_mode else 5
+
         try:
             element = WebDriverWait(self.driver, timeout).until(
                 EC.presence_of_element_located((by, identifier))
@@ -230,6 +251,7 @@ class TicketAutomation:
     
     def emitir_ticket_completo(self, row_data, row_number):
         """Proceso completo de emisión de ticket siguiendo el flujo exacto"""
+        start_time = time.time()  # Inicio del timer de performance
         try:
             self.log(f"\n=== Procesando fila {row_number}: {row_data.get('Nombre')} {row_data.get('Apellido')} ===")
             
@@ -240,14 +262,12 @@ class TicketAutomation:
                 description="selector de función"
             )
             if funcion_clicked:
-                time.sleep(1)
-                # Seleccionar primera opción
+                # Seleccionar primera opción (sin sleep - wait_and_click ya espera)
                 self.wait_and_click(
                     "//li[contains(@id, 'headlessui-listbox-option')][1]",
                     timeout=5,
                     description="primera función"
                 )
-                time.sleep(1)
             
             # PASO 2: Seleccionar sector
             sector = row_data.get('Sector', '').strip()
@@ -262,7 +282,6 @@ class TicketAutomation:
                         self.driver.execute_script("arguments[0].click();", sector_buttons[1])
                     else:
                         sector_buttons[1].click()
-                    time.sleep(1)
                     
                     # Buscar y clickear el sector correcto
                     try:
@@ -280,7 +299,6 @@ class TicketAutomation:
                             timeout=3,
                             description="primer sector disponible"
                         )
-                    time.sleep(1)
             
             # PASO 3: Seleccionar tarifa basada en el valor
             valor = str(row_data.get('Valor', '0')).replace('$', '').replace('.', '').replace(',', '.')
@@ -292,10 +310,9 @@ class TicketAutomation:
             self.log(f"3. Seleccionando tarifa (valor: ${valor_float})")
             
             # Click en el combobox de tarifa
-            tarifa_input = self.driver.find_element(By.XPATH, 
+            tarifa_input = self.driver.find_element(By.XPATH,
                 "//input[contains(@id, 'headlessui-combobox-input')]")
             tarifa_input.click()
-            time.sleep(1)
             
             # Determinar qué tarifa buscar
             if valor_float > 0:
@@ -308,7 +325,6 @@ class TicketAutomation:
                 try:
                     tarifa_input.clear()
                     tarifa_input.send_keys(tarifa)
-                    time.sleep(1)
                     
                     # Intentar seleccionar la primera opción que aparezca
                     tarifa_option = self.driver.find_element(By.XPATH, 
@@ -325,14 +341,11 @@ class TicketAutomation:
             
             if not tarifa_seleccionada:
                 tarifa_input.click()
-                time.sleep(1)
                 self.wait_and_click(
                     "//li[contains(@id, 'headlessui-combobox-option')][1]",
                     timeout=3
                 )
-            
-            time.sleep(1)
-            
+
             # PASO 4: Cantidad (siempre 1, ya viene por defecto)
             self.log("4. Cantidad: 1 (default)")
             
@@ -351,9 +364,7 @@ class TicketAutomation:
                     timeout=3,
                     description="botón Continuar alternativo"
                 )
-            
-            time.sleep(2)
-            
+
             # PASO 6: Cargar asistentes
             self.log("6. Cargando asistentes...")
             cargar_asistentes = self.wait_and_click(
@@ -362,8 +373,6 @@ class TicketAutomation:
             )
             
             if cargar_asistentes:
-                time.sleep(2)
-                
                 # Llenar datos del asistente
                 nombre = row_data.get('Nombre', '')
                 apellido = row_data.get('Apellido', '')
@@ -379,7 +388,6 @@ class TicketAutomation:
                     "//button[@type='submit' and contains(., 'Guardar asistentes')]",
                     description="guardar asistentes"
                 )
-                time.sleep(2)
             
             # PASO 8: Omitir (si aparece)
             self.log("8. Buscando botón Omitir...")
@@ -388,30 +396,26 @@ class TicketAutomation:
                 timeout=3,
                 description="omitir"
             )
-            time.sleep(2)
-            
+
             # PASO 9: Seleccionar Quentro
             self.log("9. Seleccionando Quentro...")
             self.wait_and_click(
                 "//button[contains(@class, 'group') and contains(., 'Quentro')]",
                 description="Quentro"
             )
-            time.sleep(2)
-            
+
             # PASO 10: Seleccionar enviar por email
             self.log("10. Seleccionando enviar por email...")
             self.wait_and_click(
                 "//button[contains(@class, 'group') and contains(., 'Enviar por email')]",
                 description="enviar por email"
             )
-            time.sleep(2)
             # PASO 11: Ingresar email y continuar
             email = row_data.get('Mail', '')
             if email:
                 self.log(f"11. Ingresando email: {email}")
                 self.wait_and_send_keys("email", email, description="email")
-                time.sleep(1)
-                
+
                 # Click en Continuar después del email
                 self.log("11b. Haciendo click en Continuar después del email...")
                 continuar_email = self.wait_and_click(
@@ -427,8 +431,6 @@ class TicketAutomation:
                         timeout=3,
                         description="botón Continuar alternativo"
                     )
-                
-                time.sleep(2)
 
                 # PASO 12: Omitir (si aparece nuevamente)
                 self.log("12. Buscando segundo botón Omitir...")
@@ -437,7 +439,6 @@ class TicketAutomation:
                     timeout=3,
                     description="omitir pequeño"
                 )
-                time.sleep(2)
             
             # PASO 13: Reservar entradas
             self.log("13. Reservando entradas...")
@@ -451,44 +452,32 @@ class TicketAutomation:
                     "//button[contains(@class, 'bg-primary-600') and contains(@class, 'text-base')]",
                     description="botón principal"
                 )
-            
-            time.sleep(3)
-            
+
+            # Esperar que aparezcan las opciones de pago después del loader
+            try:
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.XPATH,
+                        "//div[@role='radiogroup']//p[text()='Cortesía']"))
+                )
+                self.log("✓ Opciones de pago cargadas correctamente")
+                time.sleep(0.5)  # Micro-delay para estabilización
+            except TimeoutException:
+                self.log("⚠ Opciones de pago tardaron en cargar")
+
             # PASO 14: Seleccionar Cortesía ANTES de pagar (si el valor es 0)
             if valor_float == 0:
                 self.log("14. Seleccionando Cortesía antes del pago...")
 
-                # Intentar con el selector específico proporcionado en el task
                 cortesia_seleccionada = self.wait_and_click(
-                    "//div[@role='radio' and contains(@class, 'bg-primary-600') and contains(., 'Cortesía')]",
+                    "//div[@role='radiogroup']//p[text()='Cortesía']/ancestor::div[@role='radio']",
                     timeout=5,
                     description="botón radio Cortesía"
                 )
-
-                # Si no funciona, intentar con selectores alternativos
-                if not cortesia_seleccionada:
-                    self.log("  Intentando selector alternativo para Cortesía...")
-                    cortesia_seleccionada = self.wait_and_click(
-                        "//div[contains(@class, 'flex items-center justify-center') and contains(@class, 'bg-primary-600') and .//p[contains(text(), 'Cortesía')]]",
-                        timeout=3,
-                        description="Cortesía con selector completo"
-                    )
-
-                # Selector de respaldo (el original)
-                if not cortesia_seleccionada:
-                    self.log("  Usando selector de respaldo para Cortesía...")
-                    cortesia_seleccionada = self.wait_and_click(
-                        "//div[contains(@class, 'bg-primary-600') and contains(., 'Cortesía')]",
-                        timeout=3,
-                        description="Cortesía selector original"
-                    )
 
                 if cortesia_seleccionada:
                     self.log("  ✓ Cortesía seleccionada exitosamente")
                 else:
                     self.log("  ⚠ No se pudo seleccionar Cortesía, continuando...")
-
-                time.sleep(2)
             
             # PASO 15: Pagar
             self.log("15. Confirmando pago...")
@@ -503,15 +492,28 @@ class TicketAutomation:
                     description="confirmar/finalizar"
                 )
             
-            time.sleep(5)
-            
+            # PASO 16: Esperar confirmación y capturar número de ticket
+            # Esperar que aparezca el número de ticket (en lugar de sleep de 5 segundos)
+            try:
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.XPATH,
+                        "//p[contains(@class, 'text-gray-500') and contains(text(), '#')] | "
+                        "//span[contains(text(), '#')] | "
+                        "//div[contains(text(), '#')] | "
+                        "//*[contains(@class, 'text-sm') and contains(text(), '#')]"))
+                )
+            except TimeoutException:
+                self.log("  ⚠ No se detectó número de ticket rápidamente")
+
             # PASO 16: Capturar número de ticket
             self.log("16. Capturando número de ticket...")
             ticket_number = self.capture_ticket_number()
             
             if ticket_number:
+                duration = time.time() - start_time
                 self.log(f"✓ Ticket generado: {ticket_number}")
-                
+                self.log(f"⏱️ TICKET {ticket_number} EMITIDO EN {duration:.1f} SEGUNDOS")
+
                 # PASO 17: Realizar otra venta
                 self.log("17. Preparando siguiente venta...")
                 self.wait_and_click(
@@ -519,8 +521,7 @@ class TicketAutomation:
                     timeout=5,
                     description="realizar otra venta"
                 )
-                time.sleep(2)
-                
+
                 return ticket_number
             else:
                 self.log("✗ No se pudo capturar el número de ticket")
@@ -531,7 +532,10 @@ class TicketAutomation:
             # Intentar volver al inicio
             try:
                 self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
-                time.sleep(3)
+                # Esperar que la página se cargue antes de continuar
+                WebDriverWait(self.driver, 5).until(
+                    EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
+                )
             except:
                 pass
             return None
@@ -694,25 +698,14 @@ class AutomationGUI:
         self.event_frame = ttk.LabelFrame(self.root, text="Selección de Evento", padding="10")
         self.event_frame.pack(fill="x", padx=10, pady=5)
         
-        self.event_listbox = tk.Listbox(self.event_frame, height=4)
+        self.event_listbox = tk.Listbox(self.event_frame, height=10)
         self.event_listbox.pack(fill="x", pady=5)
         
         self.get_events_button = ttk.Button(self.event_frame, text="Refrescar Eventos",
                                            command=self.get_events, state="disabled")
         self.get_events_button.pack(pady=5)
         
-        # Frame de opciones
-        options_frame = ttk.LabelFrame(self.root, text="Opciones", padding="10")
-        options_frame.pack(fill="x", padx=10, pady=5)
-        
-        # Checkbox para modo headless
-        self.headless_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(options_frame, text="Modo Headless (más rápido, sin ventana)", 
-                       variable=self.headless_var).pack(anchor="w", padx=10, pady=5)
-        
-        ttk.Label(options_frame, text="⚠ Activá headless solo cuando esté funcionando bien", 
-                 font=("Arial", 9)).pack(anchor="w", padx=10)
-        
+
         # Botones de acción
         button_frame = tk.Frame(self.root)
         button_frame.pack(pady=10)
@@ -721,7 +714,7 @@ class AutomationGUI:
                                         command=self.connect_systems)
         self.connect_button.pack(side="left", padx=5)
         
-        self.start_button = ttk.Button(button_frame, text="2. Iniciar Procesamiento", 
+        self.start_button = ttk.Button(button_frame, text="2. Iniciar Emisión de Tickets", 
                                       command=self.start_processing, state="disabled")
         self.start_button.pack(side="left", padx=5)
         
@@ -781,9 +774,8 @@ class AutomationGUI:
         if self.automation and self.automation.driver:
             self.automation.driver.quit()
         
-        # Crear nueva instancia con el modo seleccionado
-        headless = self.headless_var.get()
-        self.automation = TicketAutomation(headless_mode=headless)
+        # Crear nueva instancia con headless mode siempre activado para máximo rendimiento
+        self.automation = TicketAutomation(headless_mode=True)
         self.automation.log_text = self.log_text
             
         self.connect_button.config(state="disabled")
@@ -865,7 +857,12 @@ class AutomationGUI:
         try:
             # Ir a la página de emisión del evento
             self.automation.driver.get(f"https://pos.buenalive.com/events/{selected_event['id']}/sale")
-            time.sleep(3)
+
+            # Esperar que la página de emisión esté lista
+            WebDriverWait(self.automation.driver, 10).until(
+                EC.presence_of_element_located((By.XPATH,
+                    "//button[contains(@id, 'headlessui-listbox-button')] | //input | //form"))
+            )
             
             # Procesar tickets nominados
             self.automation.process_nominadas()
