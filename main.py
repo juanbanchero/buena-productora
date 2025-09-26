@@ -45,7 +45,7 @@ import re
 from credential_manager import CredentialManager
 
 class TicketAutomation:
-    def __init__(self, headless_mode=False):
+    def __init__(self, headless_mode=True):
         self.driver = None
         self.sheet = None
         self.credentials_file = "credentials.json"
@@ -61,6 +61,11 @@ class TicketAutomation:
         chrome_options.add_argument('--disable-dev-shm-usage')
         chrome_options.add_argument('--disable-gpu')
 
+        # Configuración headless mode
+        if self.headless_mode:
+            chrome_options.add_argument('--headless')
+            chrome_options.add_argument('--window-size=1920,1080')
+
         # Optimizaciones de performance para procesamiento masivo
         chrome_options.add_argument('--disable-extensions')
         chrome_options.add_argument('--disable-plugins')
@@ -74,14 +79,6 @@ class TicketAutomation:
         chrome_options.add_argument('--no-first-run')
         chrome_options.add_argument('--disable-ipc-flooding-protection')
         chrome_options.add_argument('--memory-pressure-off')
-
-        # Modo headless para producción
-        if self.headless_mode:
-            chrome_options.add_argument('--headless')
-            chrome_options.add_argument('--window-size=1920,1080')
-            self.log("Modo HEADLESS OPTIMIZADO activado (máximo rendimiento)")
-        else:
-            self.log("Modo VISUAL activado (para debug)")
         
         try:
             # Para Mac sin .exe
@@ -248,7 +245,62 @@ class TicketAutomation:
         except Exception as e:
             self.log(f"  ⚠ Error en {description}: {str(e)}")
             return False
-    
+
+    def check_duplicate_dni_error_fast(self):
+        """Detecta error DNI duplicado con JavaScript rápido y recupera automáticamente"""
+        try:
+            # JavaScript más rápido que XPath para detectar el error
+            js_check = """
+            var alerts = document.querySelectorAll('div[role="alert"]');
+            for (var i = 0; i < alerts.length; i++) {
+                if (alerts[i].textContent.includes('duplicatedDocuments')) {
+                    return true;
+                }
+            }
+            return false;
+            """
+
+            # Verificar inmediatamente después de click
+            for attempt in range(4):  # 4 intentos de 0.5s = 2 segundos total
+                if self.driver.execute_script(js_check):
+                    self.log(f"⚠️ ERROR: DNI duplicado detectado (intento {attempt + 1}) - iniciando recuperación")
+
+                    # RECUPERACIÓN: Click en botón volver atrás
+                    try:
+                        back_button = self.driver.find_element(By.XPATH,
+                            "//button[contains(@class, 'rounded-full') and contains(@class, 'p-2')]//svg[@viewBox='0 0 20 20']")
+                        back_button.click()
+                        self.log("  ✓ Click en botón volver atrás")
+                        time.sleep(1)
+
+                        # Volver a la página de emisión del evento
+                        if self.selected_event:
+                            self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
+                            self.log("  ✓ Regresando a página de emisión")
+
+                            # Esperar que la página se cargue
+                            WebDriverWait(self.driver, 10).until(
+                                EC.presence_of_element_located((By.XPATH,
+                                    "//button[contains(@id, 'headlessui-listbox-button')] | //input | //form"))
+                            )
+                            self.log("  ✓ Página de emisión cargada - listo para siguiente ticket")
+
+                    except Exception as recovery_error:
+                        self.log(f"  ⚠ Error en recuperación: {str(recovery_error)}")
+                        # Si falla la recuperación, intentar navegación directa
+                        if self.selected_event:
+                            self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
+                            time.sleep(2)
+
+                    return True
+                time.sleep(0.5)
+
+            return False
+        except Exception as e:
+            self.log(f"Error en verificación rápida: {str(e)}")
+            return False
+
+
     def emitir_ticket_completo(self, row_data, row_number):
         """Proceso completo de emisión de ticket siguiendo el flujo exacto"""
         start_time = time.time()  # Inicio del timer de performance
@@ -262,7 +314,6 @@ class TicketAutomation:
                 description="selector de función"
             )
             if funcion_clicked:
-                # Seleccionar primera opción (sin sleep - wait_and_click ya espera)
                 self.wait_and_click(
                     "//li[contains(@id, 'headlessui-listbox-option')][1]",
                     timeout=5,
@@ -326,9 +377,9 @@ class TicketAutomation:
                     tarifa_input.clear()
                     tarifa_input.send_keys(tarifa)
                     
-                    # Intentar seleccionar la primera opción que aparezca
-                    tarifa_option = self.driver.find_element(By.XPATH, 
-                        f"//li[contains(@id, 'headlessui-combobox-option')]")
+                    # Intentar seleccionar la opción que contiene el texto de la tarifa
+                    tarifa_option = self.driver.find_element(By.XPATH,
+                        f"//li[contains(@id, 'headlessui-combobox-option') and contains(text(), '{tarifa}')]")
                     if self.headless_mode:
                         self.driver.execute_script("arguments[0].click();", tarifa_option)
                     else:
@@ -388,7 +439,8 @@ class TicketAutomation:
                     "//button[@type='submit' and contains(., 'Guardar asistentes')]",
                     description="guardar asistentes"
                 )
-            
+
+
             # PASO 8: Omitir (si aparece)
             self.log("8. Buscando botón Omitir...")
             self.wait_and_click(
@@ -453,7 +505,12 @@ class TicketAutomation:
                     description="botón principal"
                 )
 
-            # Esperar que aparezcan las opciones de pago después del loader
+            # VERIFICAR ERROR DNI DUPLICADO INMEDIATAMENTE (antes de esperar carga)
+            if self.check_duplicate_dni_error_fast():
+                self.log("⚠️ DNI DUPLICADO detectado - marcando error y continuando con siguiente ticket")
+                return "ERROR_DNI_DUPLICADO"
+
+            # Solo si no hay error, esperar que aparezcan las opciones de pago
             try:
                 WebDriverWait(self.driver, 10).until(
                     EC.presence_of_element_located((By.XPATH,
@@ -598,23 +655,29 @@ class TicketAutomation:
                     # Verificar datos mínimos
                     if not row.get('DNI'):
                         self.log(f"Fila {idx}: Sin DNI, saltando...")
-                        worksheet.update_cell(idx, resultado_col, 'Error: Sin DNI')
+                        worksheet.update_cell(idx, resultado_col, 'Error - Sin DNI')
                         errors += 1
                         continue
                     
                     # Emitir ticket
                     ticket_number = self.emitir_ticket_completo(row, idx)
-                    
-                    if ticket_number:
+
+                    if ticket_number == "ERROR_DNI_DUPLICADO":
+                        # Marcar error específico de DNI duplicado
+                        worksheet.update_cell(idx, resultado_col, 'Error - DNI duplicado')
+                        errors += 1
+                        self.log(f"⚠️ DNI duplicado registrado - continuando con siguiente ticket")
+                    elif ticket_number:
                         # Actualizar el sheet con éxito
                         worksheet.update_cell(idx, resultado_col, 'Procesado')  # Estado en Resultado
                         worksheet.update_cell(idx, codigo_col, ticket_number)   # Número en Código
                         processed += 1
                         self.log(f"✓ Ticket emitido y actualizado en Sheet: {ticket_number}")
                     else:
-                        # Marcar error
-                        worksheet.update_cell(idx, resultado_col, 'Error al emitir')
+                        # Marcar error genérico de procesamiento
+                        worksheet.update_cell(idx, resultado_col, 'Error - No se procesó')
                         errors += 1
+                        self.log(f"⚠️ Error genérico: ticket_number = {ticket_number}")
                     
                     # Pequeña pausa entre emisiones (menos en modo headless)
                     time.sleep(0.5 if self.headless_mode else 1)
@@ -653,7 +716,7 @@ class TicketAutomation:
 class AutomationGUI:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("Automatización de Tickets - BuenaLive")
+        self.root.title("Emisión de Tickets - Buena Live")
         self.root.geometry("700x700")
         self.automation = None
         self.available_events = []
