@@ -427,28 +427,37 @@ class TicketAutomation:
                 # PASO 6b: Seleccionar tipo de documento
                 self.log(f"6b. Seleccionando tipo de documento: {tipo_documento}")
 
-                # Intentar encontrar y clickear el selector de tipo de documento
-                tipo_doc_clicked = self.wait_and_click(
-                    "//button[contains(@id, 'headlessui-listbox-button') and (contains(@name, 'documentType') or contains(@id, 'documentType'))] | " +
-                    "//select[contains(@name, 'documentType')] | " +
-                    "//button[contains(@id, 'holders.0.documentType')]",
-                    timeout=3,
-                    description="selector tipo documento"
-                )
+                # Click en el tercer listbox (tipo de documento)
+                tipo_doc_buttons = self.driver.find_elements(By.XPATH,
+                    "//button[contains(@id, 'headlessui-listbox-button')]")
 
-                if tipo_doc_clicked:
-                    # Buscar y seleccionar la opción correcta
-                    tipo_option_clicked = self.wait_and_click(
-                        f"//li[contains(@id, 'headlessui-listbox-option') and contains(text(), '{tipo_documento}')] | " +
-                        f"//option[contains(text(), '{tipo_documento}')]",
-                        timeout=3,
-                        description=f"opción {tipo_documento}"
-                    )
-
-                    if tipo_option_clicked:
-                        self.log(f"  ✓ Tipo de documento seleccionado: {tipo_documento}")
+                if len(tipo_doc_buttons) >= 3:
+                    # El tercer listbox es el de tipo de documento
+                    if self.headless_mode:
+                        self.driver.execute_script("arguments[0].click();", tipo_doc_buttons[2])
                     else:
-                        self.log(f"  ⚠ No se encontró la opción '{tipo_documento}', usando valor por defecto")
+                        tipo_doc_buttons[2].click()
+
+                    # Buscar y clickear el tipo de documento correcto
+                    try:
+                        # Buscar opción que contenga el tipo de documento
+                        tipo_option = self.driver.find_element(By.XPATH,
+                            f"//li[contains(@id, 'headlessui-listbox-option') and (text()='{tipo_documento}' or contains(text(), '{tipo_documento}'))]")
+
+                        if self.headless_mode:
+                            self.driver.execute_script("arguments[0].click();", tipo_option)
+                        else:
+                            tipo_option.click()
+
+                        self.log(f"  ✓ Tipo de documento seleccionado: {tipo_documento}")
+                    except:
+                        # Si no encuentra, seleccionar el primero por defecto
+                        self.wait_and_click(
+                            "//li[contains(@id, 'headlessui-listbox-option')][1]",
+                            timeout=3,
+                            description="primer tipo de documento"
+                        )
+                        self.log(f"  ⚠ No se encontró '{tipo_documento}', usando opción por defecto")
                 else:
                     self.log(f"  ⚠ Selector de tipo de documento no encontrado, continuando...")
 
