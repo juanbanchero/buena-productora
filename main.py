@@ -308,7 +308,7 @@ class TicketAutomation:
                 )
             
             # PASO 2: Seleccionar sector
-            sector = row_data.get('Sector', '').strip()
+            sector = str(row_data.get('Sector', '')).strip()
             if sector:
                 self.log(f"2. Seleccionando sector: {sector}")
                 # Click en el segundo listbox (sector)
@@ -412,17 +412,18 @@ class TicketAutomation:
             
             if cargar_asistentes:
                 # Llenar datos del asistente
-                nombre = row_data.get('Nombre', '')
-                apellido = row_data.get('Apellido', '')
+                nombre = str(row_data.get('Nombre', ''))
+                apellido = str(row_data.get('Apellido', ''))
 
                 # Limpiar DNI: solo letras y números (soporta pasaportes alfanuméricos)
-                dni_raw = row_data.get('DNI', '')
+                # Convertir a string primero (Google Sheets puede devolver números como int)
+                dni_raw = str(row_data.get('DNI', ''))
                 dni = re.sub(r'[^a-zA-Z0-9]', '', dni_raw)
                 if dni != dni_raw:
                     self.log(f"  DNI limpiado: '{dni_raw}' → '{dni}'")
 
                 # Leer tipo de documento (CI, DNI, Pasaporte, Otro)
-                tipo_documento = row_data.get('Tipo', 'DNI').strip()
+                tipo_documento = str(row_data.get('Tipo', 'DNI')).strip()
 
                 # PASO 6b: Seleccionar tipo de documento
                 self.log(f"6b. Seleccionando tipo de documento: {tipo_documento}")
@@ -495,7 +496,7 @@ class TicketAutomation:
                 description="enviar por email"
             )
             # PASO 11: Ingresar email y continuar
-            email = row_data.get('Mail', '')
+            email = str(row_data.get('Mail', ''))
             if email:
                 self.log(f"11. Ingresando email: {email}")
                 self.wait_and_send_keys("email", email, description="email")
