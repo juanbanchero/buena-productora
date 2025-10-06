@@ -294,21 +294,66 @@ class TicketAutomation:
         try:
             self.log(f"\n=== Procesando fila {row_number}: {row_data.get('Nombre')} {row_data.get('Apellido')} ===")
             
-            # PASO 1: Seleccionar función (primera disponible)
-            self.log("1. Seleccionando función...")
-            funcion_clicked = self.wait_and_click(
-                "//button[contains(@id, 'headlessui-listbox-button') and contains(@class, 'cursor-default')]",
-                description="selector de función"
-            )
-            if funcion_clicked:
-                self.wait_and_click(
-                    "//li[contains(@id, 'headlessui-listbox-option')][1]",
-                    timeout=5,
-                    description="primera función"
-                )
+            # PASO 1: Seleccionar función
+            funcion = str(row_data.get('Función', '')).strip()
+            if funcion:
+                self.log(f"1. Seleccionando función: {funcion}")
+            else:
+                self.log("1. Seleccionando función (primera disponible)...")
+
+            # Click en el primer listbox button (selector de función)
+            funcion_buttons = self.driver.find_elements(By.XPATH,
+                "//button[contains(@id, 'headlessui-listbox-button') and contains(@class, 'cursor-default')]")
+
+            if len(funcion_buttons) > 0:
+                # Click en el primer button (función)
+                if self.headless_mode:
+                    self.driver.execute_script("arguments[0].click();", funcion_buttons[0])
+                else:
+                    funcion_buttons[0].click()
+
+                # Esperar que se desplieguen las opciones
+                time.sleep(0.3)
+
+                if funcion:
+                    # Buscar la función específica por texto exacto o parcial
+                    try:
+                        # Intentar match exacto primero
+                        funcion_option = self.driver.find_element(By.XPATH,
+                            f"//li[contains(@id, 'headlessui-listbox-option')]//*[contains(text(), '{funcion}')]/ancestor::li")
+                        if self.headless_mode:
+                            self.driver.execute_script("arguments[0].click();", funcion_option)
+                        else:
+                            funcion_option.click()
+                        self.log(f"  ✓ Función seleccionada: {funcion}")
+                    except:
+                        # Si no encuentra, intentar con el texto contenido en el span
+                        try:
+                            funcion_option = self.driver.find_element(By.XPATH,
+                                f"//li[contains(@id, 'headlessui-listbox-option')]//span[contains(text(), '{funcion}')]/ancestor::li")
+                            if self.headless_mode:
+                                self.driver.execute_script("arguments[0].click();", funcion_option)
+                            else:
+                                funcion_option.click()
+                            self.log(f"  ✓ Función seleccionada: {funcion}")
+                        except:
+                            # Si no encuentra la función exacta, usar la primera
+                            self.log(f"  ⚠ No se encontró '{funcion}', usando primera disponible")
+                            self.wait_and_click(
+                                "//li[contains(@id, 'headlessui-listbox-option')][1]",
+                                timeout=5,
+                                description="primera función"
+                            )
+                else:
+                    # Si no hay función especificada, usar la primera
+                    self.wait_and_click(
+                        "//li[contains(@id, 'headlessui-listbox-option')][1]",
+                        timeout=5,
+                        description="primera función"
+                    )
             
             # PASO 2: Seleccionar sector
-            sector = row_data.get('Sector', '').strip()
+            sector = str(row_data.get('Sector', '')).strip()
             if sector:
                 self.log(f"2. Seleccionando sector: {sector}")
                 # Click en el segundo listbox (sector)
@@ -412,17 +457,18 @@ class TicketAutomation:
             
             if cargar_asistentes:
                 # Llenar datos del asistente
-                nombre = row_data.get('Nombre', '')
-                apellido = row_data.get('Apellido', '')
+                nombre = str(row_data.get('Nombre', ''))
+                apellido = str(row_data.get('Apellido', ''))
 
                 # Limpiar DNI: solo letras y números (soporta pasaportes alfanuméricos)
-                dni_raw = row_data.get('DNI', '')
+                # Convertir a string primero (Google Sheets puede devolver números como int)
+                dni_raw = str(row_data.get('DNI', ''))
                 dni = re.sub(r'[^a-zA-Z0-9]', '', dni_raw)
                 if dni != dni_raw:
                     self.log(f"  DNI limpiado: '{dni_raw}' → '{dni}'")
 
                 # Leer tipo de documento (CI, DNI, Pasaporte, Otro)
-                tipo_documento = row_data.get('Tipo', 'DNI').strip()
+                tipo_documento = str(row_data.get('Tipo', 'DNI')).strip()
 
                 # PASO 6b: Seleccionar tipo de documento
                 self.log(f"6b. Seleccionando tipo de documento: {tipo_documento}")
@@ -495,7 +541,7 @@ class TicketAutomation:
                 description="enviar por email"
             )
             # PASO 11: Ingresar email y continuar
-            email = row_data.get('Mail', '')
+            email = str(row_data.get('Mail', ''))
             if email:
                 self.log(f"11. Ingresando email: {email}")
                 self.wait_and_send_keys("email", email, description="email")
