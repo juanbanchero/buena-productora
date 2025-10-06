@@ -263,34 +263,21 @@ class TicketAutomation:
             # Verificar inmediatamente después de click
             for attempt in range(4):  # 4 intentos de 0.5s = 2 segundos total
                 if self.driver.execute_script(js_check):
-                    self.log(f"⚠️ ERROR: DNI duplicado detectado (intento {attempt + 1}) - iniciando recuperación")
+                    self.log(f"⚠️ DNI duplicado detectado (intento {attempt + 1}) - regresando a página de emisión")
 
-                    # RECUPERACIÓN: Click en botón volver atrás
+                    # RECUPERACIÓN: Navegar directamente a página de emisión
                     try:
-                        back_button = self.driver.find_element(By.XPATH,
-                            "//button[contains(@class, 'rounded-full') and contains(@class, 'p-2')]//svg[@viewBox='0 0 20 20']")
-                        back_button.click()
-                        self.log("  ✓ Click en botón volver atrás")
-                        time.sleep(1)
-
-                        # Volver a la página de emisión del evento
                         if self.selected_event:
                             self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
-                            self.log("  ✓ Regresando a página de emisión")
 
                             # Esperar que la página se cargue
                             WebDriverWait(self.driver, 10).until(
                                 EC.presence_of_element_located((By.XPATH,
                                     "//button[contains(@id, 'headlessui-listbox-button')] | //input | //form"))
                             )
-                            self.log("  ✓ Página de emisión cargada - listo para siguiente ticket")
-
+                            self.log("  ✓ Página de emisión lista para siguiente ticket")
                     except Exception as recovery_error:
                         self.log(f"  ⚠ Error en recuperación: {str(recovery_error)}")
-                        # Si falla la recuperación, intentar navegación directa
-                        if self.selected_event:
-                            self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
-                            time.sleep(2)
 
                     return True
                 time.sleep(0.5)
@@ -427,8 +414,44 @@ class TicketAutomation:
                 # Llenar datos del asistente
                 nombre = row_data.get('Nombre', '')
                 apellido = row_data.get('Apellido', '')
-                dni = row_data.get('DNI', '')
-                
+
+                # Limpiar DNI: solo letras y números (soporta pasaportes alfanuméricos)
+                dni_raw = row_data.get('DNI', '')
+                dni = re.sub(r'[^a-zA-Z0-9]', '', dni_raw)
+                if dni != dni_raw:
+                    self.log(f"  DNI limpiado: '{dni_raw}' → '{dni}'")
+
+                # Leer tipo de documento (CI, DNI, Pasaporte, Otro)
+                tipo_documento = row_data.get('Tipo', 'DNI').strip()
+
+                # PASO 6b: Seleccionar tipo de documento
+                self.log(f"6b. Seleccionando tipo de documento: {tipo_documento}")
+
+                # Intentar encontrar y clickear el selector de tipo de documento
+                tipo_doc_clicked = self.wait_and_click(
+                    "//button[contains(@id, 'headlessui-listbox-button') and (contains(@name, 'documentType') or contains(@id, 'documentType'))] | " +
+                    "//select[contains(@name, 'documentType')] | " +
+                    "//button[contains(@id, 'holders.0.documentType')]",
+                    timeout=3,
+                    description="selector tipo documento"
+                )
+
+                if tipo_doc_clicked:
+                    # Buscar y seleccionar la opción correcta
+                    tipo_option_clicked = self.wait_and_click(
+                        f"//li[contains(@id, 'headlessui-listbox-option') and contains(text(), '{tipo_documento}')] | " +
+                        f"//option[contains(text(), '{tipo_documento}')]",
+                        timeout=3,
+                        description=f"opción {tipo_documento}"
+                    )
+
+                    if tipo_option_clicked:
+                        self.log(f"  ✓ Tipo de documento seleccionado: {tipo_documento}")
+                    else:
+                        self.log(f"  ⚠ No se encontró la opción '{tipo_documento}', usando valor por defecto")
+                else:
+                    self.log(f"  ⚠ Selector de tipo de documento no encontrado, continuando...")
+
                 self.wait_and_send_keys("holders.0.firstName", nombre, description="nombre")
                 self.wait_and_send_keys("holders.0.lastName", apellido, description="apellido")
                 self.wait_and_send_keys("holders.0.documentNumber", dni, description="DNI")
