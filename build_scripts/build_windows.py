@@ -76,7 +76,7 @@ def build_exe():
         print(f"ERROR: Executable not found at {exe_path}")
         return False
 
-    print(f"\n✓ Successfully built: {exe_path}")
+    print(f"\n[OK] Successfully built: {exe_path}")
     print(f"  Size: {exe_path.stat().st_size / (1024*1024):.2f} MB")
     return True
 
@@ -196,7 +196,7 @@ def create_installer():
 
     installer_path = project_root / "dist" / f"TicketeraBuena-Setup-{__version__}.exe"
     if installer_path.exists():
-        print(f"\n✓ Successfully created: {installer_path}")
+        print(f"\n[OK] Successfully created: {installer_path}")
         print(f"  Size: {installer_path.stat().st_size / (1024*1024):.2f} MB")
         return True
     else:
@@ -218,7 +218,7 @@ def verify_dependencies():
         print("WARNING: Not running in virtual environment")
         print("  Consider activating venv: venv\\Scripts\\activate")
 
-    print("✓ Dependency check complete\n")
+    print("[OK] Dependency check complete\n")
 
 def main():
     parser = argparse.ArgumentParser(description="Build TicketeraBuena for Windows")

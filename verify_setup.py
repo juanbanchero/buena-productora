@@ -19,13 +19,13 @@ def print_header(text):
     print("=" * 60)
 
 def print_success(text):
-    print(f"✓ {text}")
+    print(f"[OK] {text}")
 
 def print_warning(text):
-    print(f"⚠ {text}")
+    print(f"[WARNING] {text}")
 
 def print_error(text):
-    print(f"✗ {text}")
+    print(f"[ERROR] {text}")
 
 def verify_python_version():
     """Verify Python version is 3.8+"""

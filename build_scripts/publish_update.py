@@ -85,7 +85,7 @@ def init_repository(repo_dir: Path):
         # Initialize metadata
         repo.initialize()
 
-        print("\n✓ Repository initialized successfully")
+        print("\n[OK] Repository initialized successfully")
         print(f"\nRepository structure:")
         print(f"  {repo_dir}/")
         print(f"  ├── metadata/     # TUF metadata files")
@@ -173,7 +173,7 @@ def create_archive(bundle_path: Path, output_dir: Path) -> Path:
     with tarfile.open(archive_path, "w:gz") as tar:
         tar.add(bundle_path, arcname=bundle_path.name)
 
-    print(f"✓ Created archive: {archive_path}")
+    print(f"[OK] Created archive: {archive_path}")
     print(f"  Size: {archive_path.stat().st_size / (1024*1024):.2f} MB")
 
     return archive_path
@@ -243,7 +243,7 @@ def publish_version(repo_dir: Path, skip_patch: bool = False):
             skip_patch=skip_patch
         )
 
-        print(f"✓ Version {__version__} published successfully")
+        print(f"[OK] Version {__version__} published successfully")
 
         # Show repository status
         print(f"\nRepository: {repo_dir}")
