@@ -674,7 +674,355 @@ class TicketAutomation:
             except:
                 pass
             return None
-    
+
+    def emitir_ticket_innominado(self, row_data, row_number):
+        """Proceso completo de emisión de ticket innominado (sin datos personales)"""
+        start_time = time.time()  # Inicio del timer de performance
+        try:
+            self.log(f"\n=== Procesando INNOMINADO fila {row_number} ===")
+
+            # PASO 1: Seleccionar función (IDÉNTICO A NOMINADOS)
+            funcion = str(row_data.get('Función', '')).strip()
+            if funcion:
+                self.log(f"1. Seleccionando función: {funcion}")
+            else:
+                self.log("1. Seleccionando función (primera disponible)...")
+
+            # Click en el primer listbox button (selector de función)
+            funcion_buttons = self.driver.find_elements(By.XPATH,
+                "//button[contains(@id, 'headlessui-listbox-button') and contains(@class, 'cursor-default')]")
+
+            if len(funcion_buttons) > 0:
+                # Click en el primer button (función)
+                if self.headless_mode:
+                    self.driver.execute_script("arguments[0].click();", funcion_buttons[0])
+                else:
+                    funcion_buttons[0].click()
+
+                # Esperar que se desplieguen las opciones
+                time.sleep(0.3)
+
+                if funcion:
+                    # Buscar la función específica por texto exacto o parcial
+                    try:
+                        # Intentar match exacto primero
+                        funcion_option = self.driver.find_element(By.XPATH,
+                            f"//li[contains(@id, 'headlessui-listbox-option')]//*[contains(text(), '{funcion}')]/ancestor::li")
+                        if self.headless_mode:
+                            self.driver.execute_script("arguments[0].click();", funcion_option)
+                        else:
+                            funcion_option.click()
+                        self.log(f"  ✓ Función seleccionada: {funcion}")
+                    except:
+                        # Si no encuentra, intentar con el texto contenido en el span
+                        try:
+                            funcion_option = self.driver.find_element(By.XPATH,
+                                f"//li[contains(@id, 'headlessui-listbox-option')]//span[contains(text(), '{funcion}')]/ancestor::li")
+                            if self.headless_mode:
+                                self.driver.execute_script("arguments[0].click();", funcion_option)
+                            else:
+                                funcion_option.click()
+                            self.log(f"  ✓ Función seleccionada: {funcion}")
+                        except:
+                            # Si no encuentra la función exacta, usar la primera
+                            self.log(f"  ⚠ No se encontró '{funcion}', usando primera disponible")
+                            self.wait_and_click(
+                                "//li[contains(@id, 'headlessui-listbox-option')][1]",
+                                timeout=5,
+                                description="primera función"
+                            )
+                else:
+                    # Si no hay función especificada, usar la primera
+                    self.wait_and_click(
+                        "//li[contains(@id, 'headlessui-listbox-option')][1]",
+                        timeout=5,
+                        description="primera función"
+                    )
+
+            # PASO 2: Seleccionar sector (IDÉNTICO A NOMINADOS)
+            sector = str(row_data.get('Sector', '')).strip()
+            if sector:
+                self.log(f"2. Seleccionando sector: {sector}")
+                # Click en el segundo listbox (sector)
+                sector_buttons = self.driver.find_elements(By.XPATH,
+                    "//button[contains(@id, 'headlessui-listbox-button')]")
+
+                if len(sector_buttons) > 1:
+                    if self.headless_mode:
+                        self.driver.execute_script("arguments[0].click();", sector_buttons[1])
+                    else:
+                        sector_buttons[1].click()
+
+                    # Buscar y clickear el sector correcto
+                    try:
+                        # Buscar match parcial del sector
+                        sector_option = self.driver.find_element(By.XPATH,
+                            f"//li[contains(@id, 'headlessui-listbox-option')][contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{sector.lower()}')]")
+                        if self.headless_mode:
+                            self.driver.execute_script("arguments[0].click();", sector_option)
+                        else:
+                            sector_option.click()
+                    except:
+                        # Si no encuentra, seleccionar el primero
+                        self.wait_and_click(
+                            "//li[contains(@id, 'headlessui-listbox-option')][1]",
+                            timeout=3,
+                            description="primer sector disponible"
+                        )
+
+            # PASO 3: Seleccionar tarifa basada en el valor (IDÉNTICO A NOMINADOS)
+            valor = str(row_data.get('Valor', '0')).replace('$', '').replace('.', '').replace(',', '.')
+            try:
+                valor_float = float(valor)
+            except:
+                valor_float = 0
+
+            self.log(f"3. Seleccionando tarifa (valor: ${valor_float})")
+
+            # Click en el combobox de tarifa
+            tarifa_input = self.driver.find_element(By.XPATH,
+                "//input[contains(@id, 'headlessui-combobox-input')]")
+            tarifa_input.click()
+
+            # Determinar qué tarifa buscar
+            if valor_float > 0:
+                tarifas = ["ENTRADAS GENERALES", "Fase", "General"]
+            else:
+                tarifas = ["Cortesía", "RRPP", "Buena"]
+
+            tarifa_seleccionada = False
+            for tarifa in tarifas:
+                try:
+                    tarifa_input.clear()
+                    tarifa_input.send_keys(tarifa)
+
+                    # Intentar seleccionar la opción que contiene el texto de la tarifa
+                    tarifa_option = self.driver.find_element(By.XPATH,
+                        f"//li[contains(@id, 'headlessui-combobox-option') and contains(text(), '{tarifa}')]")
+                    if self.headless_mode:
+                        self.driver.execute_script("arguments[0].click();", tarifa_option)
+                    else:
+                        tarifa_option.click()
+                    tarifa_seleccionada = True
+                    self.log(f"  Tarifa seleccionada: {tarifa}")
+                    break
+                except:
+                    continue
+
+            if not tarifa_seleccionada:
+                tarifa_input.click()
+                self.wait_and_click(
+                    "//li[contains(@id, 'headlessui-combobox-option')][1]",
+                    timeout=3
+                )
+
+            # PASO 4: Cantidad (DIFERENTE - Leer y llenar cantidad)
+            cantidad = str(row_data.get('Cantidad', '1'))
+            self.log(f"4. Ingresando cantidad: {cantidad}")
+
+            # Buscar input de cantidad por diferentes selectores
+            cantidad_llenada = self.wait_and_send_keys("quantity", cantidad, timeout=3, description="cantidad")
+
+            if not cantidad_llenada:
+                # Intentar con XPath si el selector por ID no funciona
+                try:
+                    cantidad_input = self.driver.find_element(By.XPATH, "//input[@type='number']")
+                    cantidad_input.clear()
+                    cantidad_input.send_keys(cantidad)
+                    self.log(f"  ✓ Cantidad ingresada: {cantidad}")
+                except:
+                    self.log(f"  ⚠ No se pudo ingresar cantidad, usando valor por defecto")
+
+            # PASO 5: Click en CONTINUAR (IDÉNTICO A NOMINADOS)
+            self.log("5. Haciendo click en Continuar...")
+            continuar_clicked = self.wait_and_click(
+                "//button[@type='submit' and contains(., 'Continuar') and contains(@class, 'self-end')]",
+                timeout=5,
+                description="botón Continuar"
+            )
+
+            if not continuar_clicked:
+                # Intentar con otro selector
+                self.wait_and_click(
+                    "//button[contains(@class, 'bg-primary-600') and contains(., 'Continuar')]",
+                    timeout=3,
+                    description="botón Continuar alternativo"
+                )
+
+            # PASO 6: OMITIR DIRECTAMENTE (COMPLETAMENTE DIFERENTE)
+            self.log("6. Omitiendo carga de asistentes...")
+            omitir_clicked = self.wait_and_click(
+                "//button[@type='submit' and contains(., 'Omitir')]",
+                timeout=5,
+                description="botón Omitir"
+            )
+
+            if not omitir_clicked:
+                # Intentar selector alternativo
+                self.wait_and_click(
+                    "//button[contains(@class, 'bg-primary-600') and contains(., 'Omitir')]",
+                    timeout=3,
+                    description="botón Omitir alternativo"
+                )
+
+            # PASO 7-16: IDÉNTICO A NOMINADOS (empezando desde paso 8 de nominados)
+
+            # PASO 7: Omitir (si aparece)
+            self.log("7. Buscando botón Omitir...")
+            self.wait_and_click(
+                "//button[@type='submit' and contains(., 'Omitir')]",
+                timeout=3,
+                description="omitir"
+            )
+
+            # PASO 8: Seleccionar Quentro
+            self.log("8. Seleccionando Quentro...")
+            self.wait_and_click(
+                "//button[contains(@class, 'group') and contains(., 'Quentro')]",
+                description="Quentro"
+            )
+
+            # PASO 9: Seleccionar enviar por email
+            self.log("9. Seleccionando enviar por email...")
+            self.wait_and_click(
+                "//button[contains(@class, 'group') and contains(., 'Enviar por email')]",
+                description="enviar por email"
+            )
+
+            # PASO 10: Ingresar email y continuar
+            email = str(row_data.get('Mail', ''))
+            if email:
+                self.log(f"10. Ingresando email: {email}")
+                self.wait_and_send_keys("email", email, description="email")
+
+                # Click en Continuar después del email
+                self.log("10b. Haciendo click en Continuar después del email...")
+                continuar_email = self.wait_and_click(
+                    "//button[@type='submit' and contains(., 'Continuar') and contains(@class, 'self-end')]",
+                    timeout=5,
+                    description="botón Continuar después de email"
+                )
+
+                if not continuar_email:
+                    # Intentar selector alternativo
+                    self.wait_and_click(
+                        "//button[@type='submit' and contains(@class, 'bg-primary-600') and contains(., 'Continuar')]",
+                        timeout=3,
+                        description="botón Continuar alternativo"
+                    )
+
+                # PASO 11: Omitir (si aparece nuevamente)
+                self.log("11. Buscando segundo botón Omitir...")
+                self.wait_and_click(
+                    "//button[contains(@class, 'text-xs') and contains(., 'Omitir')]",
+                    timeout=3,
+                    description="omitir pequeño"
+                )
+
+            # PASO 12: Reservar entradas
+            self.log("12. Reservando entradas...")
+            reservar = self.wait_and_click(
+                "//button[contains(., 'Reservar entradas')]",
+                description="reservar entradas"
+            )
+
+            if not reservar:
+                self.wait_and_click(
+                    "//button[contains(@class, 'bg-primary-600') and contains(@class, 'text-base')]",
+                    description="botón principal"
+                )
+
+            # VERIFICAR ERROR DNI DUPLICADO INMEDIATAMENTE (antes de esperar carga)
+            if self.check_duplicate_dni_error_fast():
+                self.log("⚠️ DNI DUPLICADO detectado - marcando error y continuando con siguiente ticket")
+                return "ERROR_DNI_DUPLICADO"
+
+            # Solo si no hay error, esperar que aparezcan las opciones de pago
+            try:
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.XPATH,
+                        "//div[@role='radiogroup']//p[text()='Cortesía']"))
+                )
+                self.log("✓ Opciones de pago cargadas correctamente")
+                time.sleep(0.5)  # Micro-delay para estabilización
+            except TimeoutException:
+                self.log("⚠ Opciones de pago tardaron en cargar")
+
+            # PASO 13: Seleccionar Cortesía ANTES de pagar (si el valor es 0)
+            if valor_float == 0:
+                self.log("13. Seleccionando Cortesía antes del pago...")
+
+                cortesia_seleccionada = self.wait_and_click(
+                    "//div[@role='radiogroup']//p[text()='Cortesía']/ancestor::div[@role='radio']",
+                    timeout=5,
+                    description="botón radio Cortesía"
+                )
+
+                if cortesia_seleccionada:
+                    self.log("  ✓ Cortesía seleccionada exitosamente")
+                else:
+                    self.log("  ⚠ No se pudo seleccionar Cortesía, continuando...")
+
+            # PASO 14: Pagar
+            self.log("14. Confirmando pago...")
+            pagar = self.wait_and_click(
+                "//button[@type='submit' and contains(., 'Pagar')]",
+                description="pagar"
+            )
+
+            if not pagar:
+                self.wait_and_click(
+                    "//button[contains(@class, 'bg-primary-600') and (contains(., 'Confirmar') or contains(., 'Finalizar'))]",
+                    description="confirmar/finalizar"
+                )
+
+            # PASO 15: Esperar confirmación y capturar número de ticket
+            try:
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.XPATH,
+                        "//p[contains(@class, 'text-gray-500') and contains(text(), '#')] | "
+                        "//span[contains(text(), '#')] | "
+                        "//div[contains(text(), '#')] | "
+                        "//*[contains(@class, 'text-sm') and contains(text(), '#')]"))
+                )
+            except TimeoutException:
+                self.log("  ⚠ No se detectó número de ticket rápidamente")
+
+            # PASO 16: Capturar número de ticket
+            self.log("15. Capturando número de ticket...")
+            ticket_number = self.capture_ticket_number()
+
+            if ticket_number:
+                duration = time.time() - start_time
+                self.log(f"✓ Ticket innominado generado: {ticket_number}")
+                self.log(f"⏱️ TICKET INNOMINADO {ticket_number} EMITIDO EN {duration:.1f} SEGUNDOS")
+
+                # PASO 17: Realizar otra venta
+                self.log("16. Preparando siguiente venta...")
+                self.wait_and_click(
+                    "//button[contains(., 'Realizar otra venta')]",
+                    timeout=5,
+                    description="realizar otra venta"
+                )
+
+                return ticket_number
+            else:
+                self.log("✗ No se pudo capturar el número de ticket innominado")
+                return None
+
+        except Exception as e:
+            self.log(f"✗ Error en emisión innominada: {str(e)}")
+            # Intentar volver al inicio
+            try:
+                self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
+                # Esperar que la página se cargue antes de continuar
+                WebDriverWait(self.driver, 5).until(
+                    EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
+                )
+            except:
+                pass
+            return None
+
     def capture_ticket_number(self):
         """Captura el número de ticket de la confirmación"""
         try:
@@ -779,7 +1127,95 @@ class TicketAutomation:
             
         except Exception as e:
             self.log(f"✗ Error general: {str(e)}")
-    
+
+    def process_innominadas(self, worksheet_name="Innominadas"):
+        """Procesa todos los tickets innominados"""
+        try:
+            # Intentar "Innominadas" primero, luego "innominadas"
+            try:
+                worksheet = self.sheet.worksheet(worksheet_name)
+            except:
+                worksheet = self.sheet.worksheet(worksheet_name.lower())
+
+            records = worksheet.get_all_records()
+
+            self.log(f"\n{'='*50}")
+            self.log(f"Iniciando procesamiento de {len(records)} tickets INNOMINADOS")
+            self.log(f"{'='*50}\n")
+
+            # Obtener índices de columnas
+            headers = worksheet.row_values(1)
+            resultado_col = headers.index('Resultado') + 1 if 'Resultado' in headers else len(headers)
+            codigo_col = headers.index('Código') + 1 if 'Código' in headers else len(headers) + 1
+
+            processed = 0
+            errors = 0
+            skipped = 0
+
+            for idx, row in enumerate(records, start=2):
+                try:
+                    # Verificar si ya fue procesado
+                    if row.get('Código') and str(row.get('Código')).startswith('#'):
+                        self.log(f"Fila {idx}: Ya procesado ({row.get('Código')}), saltando...")
+                        skipped += 1
+                        continue
+
+                    # VALIDACIÓN DIFERENTE: Verificar Cantidad
+                    cantidad = str(row.get('Cantidad', '0'))
+                    try:
+                        cantidad_int = int(cantidad)
+                    except:
+                        cantidad_int = 0
+
+                    if cantidad_int <= 0:
+                        self.log(f"Fila {idx}: Cantidad inválida o 0, saltando...")
+                        worksheet.update_cell(idx, resultado_col, 'Error - Cantidad inválida')
+                        errors += 1
+                        continue
+
+                    # LLAMAR FUNCIÓN INNOMINADA
+                    ticket_number = self.emitir_ticket_innominado(row, idx)
+
+                    if ticket_number == "ERROR_DNI_DUPLICADO":
+                        # Marcar error específico de DNI duplicado
+                        worksheet.update_cell(idx, resultado_col, 'Error - DNI duplicado')
+                        errors += 1
+                        self.log(f"⚠️ DNI duplicado registrado - continuando con siguiente ticket")
+                    elif ticket_number:
+                        # Actualizar el sheet con éxito
+                        worksheet.update_cell(idx, resultado_col, 'Procesado')  # Estado en Resultado
+                        worksheet.update_cell(idx, codigo_col, ticket_number)   # Número en Código
+                        processed += 1
+                        self.log(f"✓ Ticket innominado emitido y actualizado en Sheet: {ticket_number}")
+                    else:
+                        # Marcar error genérico de procesamiento
+                        worksheet.update_cell(idx, resultado_col, 'Error - No se procesó')
+                        errors += 1
+                        self.log(f"⚠️ Error genérico: ticket_number = {ticket_number}")
+
+                    # Pequeña pausa entre emisiones (menos en modo headless)
+                    time.sleep(0.5 if self.headless_mode else 1)
+
+                except Exception as e:
+                    self.log(f"✗ Error en fila {idx}: {str(e)}")
+                    try:
+                        worksheet.update_cell(idx, resultado_col, f'Error: {str(e)[:30]}')
+                    except:
+                        pass
+                    errors += 1
+
+            # Resumen final
+            self.log(f"\n{'='*50}")
+            self.log(f"RESUMEN DE PROCESAMIENTO INNOMINADOS:")
+            self.log(f"  • Procesados exitosamente: {processed}")
+            self.log(f"  • Errores: {errors}")
+            self.log(f"  • Saltados (ya procesados): {skipped}")
+            self.log(f"  • Total: {len(records)}")
+            self.log(f"{'='*50}\n")
+
+        except Exception as e:
+            self.log(f"✗ Error general innominados: {str(e)}")
+
     def log(self, message):
         """Loguea mensajes en la interfaz y consola"""
         timestamp = datetime.now().strftime("%H:%M:%S")
@@ -855,10 +1291,14 @@ class AutomationGUI:
                                         command=self.connect_systems)
         self.connect_button.pack(side="left", padx=5)
         
-        self.start_button = ttk.Button(button_frame, text="2. Iniciar Emisión de Tickets", 
+        self.start_button = ttk.Button(button_frame, text="Iniciar Emisión Nominados",
                                       command=self.start_processing, state="disabled")
         self.start_button.pack(side="left", padx=5)
-        
+
+        self.start_innominados_button = ttk.Button(button_frame, text="Iniciar Emisión Innominados",
+                                                   command=self.start_processing_innominados, state="disabled")
+        self.start_innominados_button.pack(side="left", padx=5)
+
         # Log area
         log_frame = ttk.LabelFrame(self.root, text="Log de Procesamiento", padding="10")
         log_frame.pack(fill="both", expand=True, padx=10, pady=5)
@@ -968,10 +1408,11 @@ class AutomationGUI:
         if self.available_events:
             for event in self.available_events:
                 self.event_listbox.insert(tk.END, f"{event['name']} (ID: {event['id']})")
-            
+
             self.start_button.config(state="normal")
+            self.start_innominados_button.config(state="normal")
             self.automation.log(f"✓ {len(self.available_events)} eventos encontrados")
-            self.automation.log("Seleccioná un evento y dale a 'Iniciar Procesamiento'")
+            self.automation.log("Seleccioná un evento y dale a 'Iniciar Emisión Nominados' o 'Iniciar Emisión Innominados'")
         else:
             messagebox.showwarning("Advertencia", "No se encontraron eventos")
     
@@ -1015,7 +1456,48 @@ class AutomationGUI:
             messagebox.showerror("Error", f"Error crítico: {str(e)}")
         finally:
             self.start_button.config(state="normal")
-    
+
+    def start_processing_innominados(self):
+        """Inicia el procesamiento de tickets innominados"""
+        selection = self.event_listbox.curselection()
+        if not selection:
+            messagebox.showerror("Error", "Seleccioná un evento primero")
+            return
+
+        selected_index = selection[0]
+        selected_event = self.available_events[selected_index]
+        self.automation.selected_event = selected_event
+
+        self.start_innominados_button.config(state="disabled")
+
+        thread = threading.Thread(target=self._process_thread_innominados,
+                                 args=(selected_event,))
+        thread.daemon = True
+        thread.start()
+
+    def _process_thread_innominados(self, selected_event):
+        """Thread de procesamiento de innominados"""
+        try:
+            # Ir a la página de emisión del evento
+            self.automation.driver.get(f"https://pos.buenalive.com/events/{selected_event['id']}/sale")
+
+            # Esperar que la página de emisión esté lista
+            WebDriverWait(self.automation.driver, 10).until(
+                EC.presence_of_element_located((By.XPATH,
+                    "//button[contains(@id, 'headlessui-listbox-button')] | //input | //form"))
+            )
+
+            # Procesar tickets INNOMINADOS
+            self.automation.process_innominadas()
+
+            messagebox.showinfo("Éxito", "Procesamiento de innominados completado. Revisá el log para ver el resumen.")
+
+        except Exception as e:
+            self.automation.log(f"Error crítico innominados: {str(e)}")
+            messagebox.showerror("Error", f"Error crítico: {str(e)}")
+        finally:
+            self.start_innominados_button.config(state="normal")
+
     def run(self):
         def on_closing():
             if self.automation and self.automation.driver:
