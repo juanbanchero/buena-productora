@@ -10,4 +10,4 @@ Version format follows Semantic Versioning (SemVer): MAJOR.MINOR.PATCH
 - PATCH: Backwards compatible bug fixes
 """
 
-__version__ = "1.0.4"
+__version__ = "1.0.5"

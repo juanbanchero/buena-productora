@@ -123,7 +123,7 @@ Section "Install"
     SetOutPath "$INSTDIR"
 
     ; Add files
-    File /r "dist\\${{APP_EXE}}"
+    File "dist\\${{APP_EXE}}"
 
     ; Create uninstaller
     WriteUninstaller "$INSTDIR\\Uninstall.exe"
