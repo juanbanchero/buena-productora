@@ -25,6 +25,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
+    - name: Install create-dmg
+      run: |
+        brew install create-dmg
+
     - name: Build macOS app
       run: |
         python build_scripts/build_mac.py --dmg --clean
@@ -95,13 +99,21 @@ jobs:
         ls -lR macos-artifacts/
         echo "=== Windows artifacts ==="
         ls -lR windows-artifacts/
+        echo "=== Find all files ==="
+        find macos-artifacts/ -name "*.dmg"
+        find windows-artifacts/ -name "*.exe"
+
+    - name: Prepare release files
+      run: |
+        mkdir -p release-files
+        find macos-artifacts/ -name "*.dmg" -exec cp {} release-files/ \;
+        find windows-artifacts/ -name "*.exe" -exec cp {} release-files/ \;
+        ls -lh release-files/
 
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
-        files: |
-          macos-artifacts/**/*.dmg
-          windows-artifacts/**/*.exe
+        files: release-files/*
         draft: false
         prerelease: false
       env:
