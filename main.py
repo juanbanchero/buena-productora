@@ -51,7 +51,14 @@ class TicketAutomation:
     def __init__(self, headless_mode=True):
         self.driver = None
         self.sheet = None
-        self.credentials_file = "credentials.json"
+        # Get correct path for credentials.json (works in both dev and packaged .exe)
+        if getattr(sys, 'frozen', False):
+            # Running as compiled executable - use PyInstaller's temp folder
+            bundle_dir = sys._MEIPASS
+            self.credentials_file = os.path.join(bundle_dir, 'credentials.json')
+        else:
+            # Running in development - use current directory
+            self.credentials_file = "credentials.json"
         self.log_text = None
         self.selected_event = None
         self.current_row = None
