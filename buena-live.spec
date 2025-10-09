@@ -44,6 +44,8 @@ hiddenimports = [
     'tufup.client',
     'bsdiff4',
     'packaging',
+    'webdriver_manager',
+    'webdriver_manager.chrome',
 ]
 
 # Analysis: scan the main script and its dependencies

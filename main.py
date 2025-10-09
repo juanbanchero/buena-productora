@@ -35,6 +35,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from webdriver_manager.chrome import ChromeDriverManager
 import gspread
 from google.oauth2.service_account import Credentials
 import time
@@ -83,17 +84,12 @@ class TicketAutomation:
         chrome_options.add_argument('--memory-pressure-off')
         
         try:
-            # Para Mac sin .exe
-            if sys.platform == "darwin":
-                self.driver = webdriver.Chrome(options=chrome_options)
-            else:
-                # Para Windows
-                if getattr(sys, 'frozen', False):
-                    chromedriver_path = os.path.join(sys._MEIPASS, "chromedriver.exe")
-                else:
-                    chromedriver_path = "chromedriver.exe"
-                service = Service(chromedriver_path)
-                self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            # Usar webdriver-manager para descargar automáticamente el ChromeDriver correcto
+            # Esto funciona en Mac, Windows y Linux sin configuración adicional
+            self.log("Configurando ChromeDriver automáticamente...")
+            service = Service(ChromeDriverManager().install())
+            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            self.log("✓ ChromeDriver configurado correctamente")
                 
             # Configurar timeouts
             self.driver.set_page_load_timeout(30)
