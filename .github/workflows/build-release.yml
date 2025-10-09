@@ -70,6 +70,8 @@ jobs:
     name: Create Release
     needs: [build-mac, build-windows]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
     - name: Checkout code
@@ -79,20 +81,27 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         name: macos-build
-        path: dist/
+        path: macos-artifacts/
 
     - name: Download Windows artifacts
       uses: actions/download-artifact@v4
       with:
         name: windows-build
-        path: dist/
+        path: windows-artifacts/
+
+    - name: List downloaded files
+      run: |
+        echo "=== macOS artifacts ==="
+        ls -lR macos-artifacts/
+        echo "=== Windows artifacts ==="
+        ls -lR windows-artifacts/
 
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          dist/TicketeraBuena-*.dmg
-          dist/TicketeraBuena.exe
+          macos-artifacts/**/*.dmg
+          windows-artifacts/**/*.exe
         draft: false
         prerelease: false
       env:
