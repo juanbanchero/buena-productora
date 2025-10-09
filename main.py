@@ -84,21 +84,46 @@ class TicketAutomation:
         chrome_options.add_argument('--memory-pressure-off')
         
         try:
-            # Usar webdriver-manager para descargar automáticamente el ChromeDriver correcto
-            # Esto funciona en Mac, Windows y Linux sin configuración adicional
-            self.log("Configurando ChromeDriver automáticamente...")
-            service = Service(ChromeDriverManager().install())
+            self.log("Configurando ChromeDriver...")
+            service = None
+
+            # Estrategia 1: Intentar usar ChromeDriver empaquetado (Windows .exe)
+            if getattr(sys, 'frozen', False):
+                # Running as compiled executable
+                bundle_dir = sys._MEIPASS
+                chromedriver_path = os.path.join(bundle_dir, 'chromedriver.exe')
+
+                if os.path.exists(chromedriver_path):
+                    self.log(f"Usando ChromeDriver empaquetado: {chromedriver_path}")
+                    service = Service(chromedriver_path)
+                else:
+                    self.log("ChromeDriver empaquetado no encontrado, usando webdriver-manager...")
+
+            # Estrategia 2: Usar webdriver-manager (desarrollo o fallback)
+            if service is None:
+                self.log("Descargando ChromeDriver automáticamente...")
+                try:
+                    service = Service(ChromeDriverManager().install())
+                except Exception as wdm_error:
+                    self.log(f"Error con webdriver-manager: {wdm_error}")
+                    # Último intento: chromedriver en PATH
+                    self.log("Intentando usar chromedriver desde PATH...")
+                    service = Service()
+
+            # Crear driver con el servicio configurado
             self.driver = webdriver.Chrome(service=service, options=chrome_options)
             self.log("✓ ChromeDriver configurado correctamente")
-                
+
             # Configurar timeouts
             self.driver.set_page_load_timeout(30)
             self.driver.implicitly_wait(5)
-                
+
             self.log("✓ Driver configurado correctamente")
             return True
         except Exception as e:
             self.log(f"✗ Error configurando driver: {str(e)}")
+            import traceback
+            self.log(f"Detalle: {traceback.format_exc()}")
             return False
         
     def login(self, email, password):

@@ -59,16 +59,44 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
+    - name: Install NSIS
+      run: |
+        choco install nsis -y
+
+    - name: Download ChromeDriver for Windows
+      run: |
+        $chromeVersion = (Get-Item "C:\Program Files\Google\Chrome\Application\chrome.exe").VersionInfo.ProductVersion
+        $majorVersion = $chromeVersion.Split('.')[0]
+        echo "Chrome version: $chromeVersion (major: $majorVersion)"
+
+        # Download ChromeDriver
+        $url = "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_$majorVersion"
+        $driverVersion = Invoke-RestMethod -Uri $url
+        echo "ChromeDriver version: $driverVersion"
+
+        $downloadUrl = "https://storage.googleapis.com/chrome-for-testing-public/$driverVersion/win64/chromedriver-win64.zip"
+        echo "Downloading from: $downloadUrl"
+
+        Invoke-WebRequest -Uri $downloadUrl -OutFile chromedriver.zip
+        Expand-Archive -Path chromedriver.zip -DestinationPath .
+        Move-Item -Path chromedriver-win64\chromedriver.exe -Destination . -Force
+        Remove-Item -Path chromedriver.zip
+        Remove-Item -Path chromedriver-win64 -Recurse
+
+        echo "ChromeDriver downloaded successfully"
+        dir chromedriver.exe
+      shell: powershell
+
     - name: Build Windows app
       run: |
-        python build_scripts/build_windows.py --clean
+        python build_scripts/build_windows.py --clean --installer
 
     - name: Upload Windows artifacts
       uses: actions/upload-artifact@v4
       with:
         name: windows-build
         path: |
-          dist/TicketeraBuena.exe
+          dist/TicketeraBuena-Setup-*.exe
 
   create-release:
     name: Create Release

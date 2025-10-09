@@ -29,6 +29,15 @@ datas = [
     (str(app_dir / 'version.py'), '.'),         # Version information
 ]
 
+# Define binaries to include (platform-specific executables)
+binaries = []
+# Include ChromeDriver on Windows if available
+if sys.platform == 'win32':
+    chromedriver_path = app_dir / 'chromedriver.exe'
+    if chromedriver_path.exists():
+        binaries.append((str(chromedriver_path), '.'))
+        print(f"Including ChromeDriver: {chromedriver_path}")
+
 # Hidden imports (modules not automatically detected by PyInstaller)
 hiddenimports = [
     'gspread',
@@ -50,7 +59,7 @@ hiddenimports = [
 a = Analysis(
     ['main.py'],                    # Main entry point
     pathex=[str(app_dir)],          # Paths to search for imports
-    binaries=[],                    # Binary files (leave empty, chromedriver must be in PATH)
+    binaries=binaries,              # Binary files (includes chromedriver on Windows)
     datas=datas,                    # Data files defined above
     hiddenimports=hiddenimports,    # Hidden imports defined above
     hookspath=[],                   # Custom hooks directory
