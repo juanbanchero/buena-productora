@@ -43,6 +43,8 @@ from datetime import datetime
 import sys
 import re
 from credential_manager import CredentialManager
+from version import __version__
+import updater
 
 class TicketAutomation:
     def __init__(self, headless_mode=True):
@@ -1230,12 +1232,16 @@ class TicketAutomation:
 class AutomationGUI:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("Emisión de Tickets - Buena Live")
-        self.root.geometry("700x700")
+        self.root.title(f"Ticketera Buena v{__version__}")
+        self.root.geometry("700x800")
         self.automation = None
         self.available_events = []
         self.credential_manager = CredentialManager()
+        self.updater_instance = None
         self.setup_ui()
+
+        # Check for updates on startup (after 3 seconds, non-blocking)
+        self.root.after(3000, self.check_for_updates_silently)
         
     def setup_ui(self):
         # Frame de credenciales
@@ -1262,7 +1268,35 @@ class AutomationGUI:
 
         # Auto-cargar credenciales si existen
         self.load_saved_credentials()
-        
+
+        # Frame de actualizaciones
+        update_frame = ttk.LabelFrame(self.root, text="Actualizaciones", padding="10")
+        update_frame.pack(fill="x", padx=10, pady=5)
+
+        # Version info and update button
+        update_info_frame = tk.Frame(update_frame)
+        update_info_frame.pack(fill="x")
+
+        ttk.Label(update_info_frame, text=f"Versión actual: {__version__}").pack(side="left", padx=5)
+
+        self.check_updates_button = ttk.Button(
+            update_info_frame,
+            text="Buscar actualizaciones",
+            command=self.check_for_updates_ui
+        )
+        self.check_updates_button.pack(side="left", padx=5)
+
+        # Update status label
+        self.update_status_label = ttk.Label(update_frame, text="")
+        self.update_status_label.pack(fill="x", pady=5)
+
+        # Progress bar (hidden by default)
+        self.update_progress = ttk.Progressbar(
+            update_frame,
+            mode='indeterminate',
+            length=300
+        )
+
         # Frame de Google Sheets
         sheet_frame = ttk.LabelFrame(self.root, text="Google Sheets", padding="10")
         sheet_frame.pack(fill="x", padx=10, pady=5)
@@ -1498,12 +1532,192 @@ class AutomationGUI:
         finally:
             self.start_innominados_button.config(state="normal")
 
+    def check_for_updates_silently(self):
+        """Check for updates on startup without blocking UI"""
+        def check():
+            try:
+                update_available, latest_version = updater.check_for_updates()
+                if update_available:
+                    # Show non-intrusive notification
+                    self.root.after(0, self._show_startup_update_notification, latest_version)
+            except Exception:
+                # Fail silently on startup check
+                pass
+
+        thread = threading.Thread(target=check, daemon=True)
+        thread.start()
+
+    def _show_startup_update_notification(self, latest_version):
+        """Show update notification from startup check"""
+        self.update_status_label.config(
+            text=f"¡Nueva versión {latest_version} disponible! Click en 'Buscar actualizaciones'"
+        )
+        # Optionally show dialog (less intrusive than auto-download)
+        response = messagebox.askyesno(
+            "Actualización disponible",
+            f"Nueva versión {latest_version} disponible.\n"
+            f"Versión actual: {__version__}\n\n"
+            f"¿Descargar e instalar ahora?",
+            icon='info'
+        )
+        if response:
+            self.download_and_install_ui()
+
+    def check_for_updates_ui(self):
+        """Check for updates from the UI"""
+        self.check_updates_button.config(state="disabled")
+        self.update_status_label.config(text="Verificando actualizaciones...")
+        self.update_progress.pack(pady=5)
+        self.update_progress.start(10)
+
+        thread = threading.Thread(target=self._check_updates_thread)
+        thread.daemon = True
+        thread.start()
+
+    def _check_updates_thread(self):
+        """Thread for checking updates"""
+        try:
+            update_available, latest_version = updater.check_for_updates()
+
+            if update_available:
+                self.root.after(0, self._show_update_dialog, latest_version)
+            else:
+                self.root.after(0, self._no_update_available)
+
+        except Exception as e:
+            self.root.after(0, self._update_error, str(e))
+
+    def _show_update_dialog(self, latest_version):
+        """Show dialog when update is available"""
+        self.update_progress.stop()
+        self.update_progress.pack_forget()
+        self.update_status_label.config(
+            text=f"¡Nueva versión disponible: {latest_version}!"
+        )
+        self.check_updates_button.config(state="normal")
+
+        response = messagebox.askyesno(
+            "Actualización disponible",
+            f"Nueva versión {latest_version} disponible.\n"
+            f"Versión actual: {__version__}\n\n"
+            f"¿Descargar e instalar ahora?"
+        )
+
+        if response:
+            self.download_and_install_ui()
+
+    def _no_update_available(self):
+        """Handle no update available"""
+        self.update_progress.stop()
+        self.update_progress.pack_forget()
+        self.update_status_label.config(text="La aplicación está actualizada")
+        self.check_updates_button.config(state="normal")
+        messagebox.showinfo("Sin actualizaciones", "Ya tenés la última versión instalada.")
+
+    def _update_error(self, error_message):
+        """Handle update check error"""
+        self.update_progress.stop()
+        self.update_progress.pack_forget()
+        self.update_status_label.config(text="Error al verificar actualizaciones")
+        self.check_updates_button.config(state="normal")
+        messagebox.showerror(
+            "Error",
+            f"No se pudo verificar actualizaciones:\n{error_message}"
+        )
+
+    def download_and_install_ui(self):
+        """Download and install update from UI"""
+        self.check_updates_button.config(state="disabled")
+        self.update_status_label.config(text="Descargando actualización...")
+        self.update_progress.config(mode='determinate')
+        self.update_progress['value'] = 0
+        self.update_progress.pack(pady=5)
+
+        thread = threading.Thread(target=self._download_install_thread)
+        thread.daemon = True
+        thread.start()
+
+    def _download_install_thread(self):
+        """Thread for downloading and installing update"""
+        try:
+            def progress_callback(downloaded, total, message):
+                # Update UI from this thread
+                if total > 0:
+                    progress = (downloaded / total) * 100
+                    self.root.after(0, self._update_progress, progress, message)
+
+            success = updater.download_and_install_update(progress_callback)
+
+            if success:
+                self.root.after(0, self._install_success)
+            else:
+                self.root.after(0, self._install_failed)
+
+        except Exception as e:
+            self.root.after(0, self._install_error, str(e))
+
+    def _update_progress(self, progress, message):
+        """Update progress bar and status"""
+        self.update_progress['value'] = progress
+        self.update_status_label.config(text=message)
+
+    def _install_success(self):
+        """Handle successful installation"""
+        self.update_progress['value'] = 100
+        self.update_status_label.config(text="Actualización instalada")
+
+        response = messagebox.askyesno(
+            "Actualización completa",
+            "La actualización se instaló correctamente.\n"
+            "¿Reiniciar la aplicación ahora?"
+        )
+
+        if response:
+            # Restart application
+            if self.automation and self.automation.driver:
+                self.automation.driver.quit()
+
+            try:
+                updater_instance = updater.BuenaLiveUpdater()
+                updater_instance.restart_application()
+            except Exception as e:
+                messagebox.showerror(
+                    "Error",
+                    f"No se pudo reiniciar automáticamente:\n{e}\n\n"
+                    f"Por favor, reiniciá manualmente la aplicación."
+                )
+                self.root.destroy()
+        else:
+            self.check_updates_button.config(state="normal")
+
+    def _install_failed(self):
+        """Handle failed installation"""
+        self.update_progress.config(mode='indeterminate')
+        self.update_progress.pack_forget()
+        self.update_status_label.config(text="Error al instalar actualización")
+        self.check_updates_button.config(state="normal")
+        messagebox.showerror(
+            "Error",
+            "No se pudo instalar la actualización.\nIntentá más tarde."
+        )
+
+    def _install_error(self, error_message):
+        """Handle installation error"""
+        self.update_progress.config(mode='indeterminate')
+        self.update_progress.pack_forget()
+        self.update_status_label.config(text="Error al instalar actualización")
+        self.check_updates_button.config(state="normal")
+        messagebox.showerror(
+            "Error",
+            f"Error durante la instalación:\n{error_message}"
+        )
+
     def run(self):
         def on_closing():
             if self.automation and self.automation.driver:
                 self.automation.driver.quit()
             self.root.destroy()
-        
+
         self.root.protocol("WM_DELETE_WINDOW", on_closing)
         self.root.mainloop()
 
