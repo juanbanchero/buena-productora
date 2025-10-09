@@ -1,43 +1,41 @@
 """
 BuenaLive Auto-Updater Module
 
-This module handles automatic application updates using the tufup framework.
-It provides secure, cryptographically-signed updates with support for incremental patches.
+This module handles automatic application updates using GitHub Releases API.
+It checks for new versions and directs users to download pages.
 
 Key features:
-    - Check for new versions from update repository
-    - Download updates securely with TUF (The Update Framework)
-    - Apply updates and restart application
-    - Support for full archives and incremental patches
+    - Check for new versions from GitHub Releases
+    - Open browser to download page for new versions
+    - Simple version comparison
 
 Integration with main application:
     - Call check_for_updates() to verify if new version exists
-    - Call download_and_install_update() to apply updates
-    - Restart application after update completes
+    - Call open_download_page() to open browser to latest release
 
 See Also:
     - version.py: Application version information
-    - build_scripts/: Scripts for building and publishing updates
 """
 
-import os
-import sys
 import logging
-from pathlib import Path
+import webbrowser
 from typing import Optional, Tuple
 from packaging import version as pkg_version
 
-from tufup.client import Client
+try:
+    import requests
+except ImportError:
+    requests = None
+
 from version import __version__
 
 logger = logging.getLogger(__name__)
 
 # Configuration
 APP_NAME = "TicketeraBuena"
-UPDATE_REPO_URL = os.getenv(
-    "BUENA_LIVE_UPDATE_URL",
-    "https://github.com/YOUR_USERNAME/buena-live-updates/raw/main"
-)
+GITHUB_REPO = "juanbanchero/buena-productora"
+GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+GITHUB_RELEASES_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
 
 class UpdaterError(Exception):
     """Base exception for updater-related errors."""
@@ -45,57 +43,19 @@ class UpdaterError(Exception):
 
 class BuenaLiveUpdater:
     """
-    Manages application updates using tufup framework.
+    Manages application updates using GitHub Releases API.
 
     Attributes:
         current_version (str): Currently installed application version
-        client (Client): Tufup client instance for update operations
-        app_install_dir (Path): Root directory of installed application
-        update_cache_dir (Path): Directory for storing downloaded updates
     """
 
     def __init__(self):
-        """Initialize the updater with current version and paths."""
+        """Initialize the updater with current version."""
         self.current_version = __version__
-        self.app_install_dir = self._get_install_dir()
-        self.update_cache_dir = self.app_install_dir / "updates_cache"
-        self.update_cache_dir.mkdir(exist_ok=True)
-
-        # Initialize tufup client
-        try:
-            self.client = Client(
-                app_name=APP_NAME,
-                app_install_dir=self.app_install_dir,
-                current_version=self.current_version,
-                metadata_base_url=f"{UPDATE_REPO_URL}/metadata",
-                target_base_url=f"{UPDATE_REPO_URL}/targets",
-                refresh_required=False
-            )
-        except Exception as e:
-            logger.error(f"Failed to initialize updater client: {e}")
-            raise UpdaterError(f"Could not initialize updater: {e}")
-
-    def _get_install_dir(self) -> Path:
-        """
-        Determine application installation directory.
-
-        Returns:
-            Path: Installation directory path
-
-        Notes:
-            - For frozen apps (PyInstaller), uses sys._MEIPASS parent
-            - For development, uses current working directory
-        """
-        if getattr(sys, 'frozen', False):
-            # Running as compiled executable
-            return Path(sys._MEIPASS).parent
-        else:
-            # Running in development mode
-            return Path.cwd()
 
     def check_for_updates(self) -> Tuple[bool, Optional[str]]:
         """
-        Check if a new version is available.
+        Check if a new version is available on GitHub Releases.
 
         Returns:
             Tuple[bool, Optional[str]]: (update_available, latest_version)
@@ -108,16 +68,21 @@ class BuenaLiveUpdater:
             >>> if available:
             ...     print(f"Update available: {version}")
         """
+        if requests is None:
+            logger.error("requests library not available")
+            return False, None
+
         try:
             logger.info(f"Checking for updates (current version: {self.current_version})")
 
-            # Refresh metadata from server
-            self.client.refresh()
+            # Get latest release from GitHub API
+            response = requests.get(GITHUB_API_URL, timeout=10)
+            response.raise_for_status()
 
-            # Get latest version from targets
-            latest_version = self._get_latest_version()
+            release_data = response.json()
+            latest_version = release_data.get('tag_name', '').lstrip('v')
 
-            if latest_version is None:
+            if not latest_version:
                 logger.warning("Could not determine latest version")
                 return False, None
 
@@ -136,113 +101,20 @@ class BuenaLiveUpdater:
             logger.error(f"Error checking for updates: {e}")
             return False, None
 
-    def _get_latest_version(self) -> Optional[str]:
+    def open_download_page(self) -> bool:
         """
-        Extract latest version from TUF targets.
+        Open browser to GitHub Releases download page.
 
         Returns:
-            Optional[str]: Latest version string, or None if not found
+            bool: True if browser opened successfully, False otherwise
         """
         try:
-            # Get all target info from TUF metadata
-            targets = self.client.trusted_target_metas
-
-            if not targets:
-                return None
-
-            # Find latest version (target files are named like "buena-live-1.0.0.tar.gz")
-            versions = []
-            for target_path in targets.keys():
-                # Extract version from filename
-                # Expected format: {app_name}-{version}.tar.gz or .zip
-                parts = Path(target_path).stem.split('-')
-                if len(parts) >= 2:
-                    version_str = parts[-1]
-                    try:
-                        versions.append(pkg_version.parse(version_str))
-                    except pkg_version.InvalidVersion:
-                        continue
-
-            if versions:
-                return str(max(versions))
-            return None
-
-        except Exception as e:
-            logger.error(f"Error getting latest version: {e}")
-            return None
-
-    def download_and_install_update(self, progress_callback=None) -> bool:
-        """
-        Download and install available update.
-
-        Args:
-            progress_callback (callable, optional): Function called with download progress
-                Signature: callback(bytes_downloaded, total_bytes, status_message)
-
-        Returns:
-            bool: True if update installed successfully, False otherwise
-
-        Notes:
-            - Downloads update to cache directory
-            - Applies patches if available (more efficient than full download)
-            - Requires application restart to complete update
-
-        Examples:
-            >>> def progress(downloaded, total, message):
-            ...     print(f"{message}: {downloaded}/{total} bytes")
-            >>> updater = BuenaLiveUpdater()
-            >>> if updater.download_and_install_update(progress):
-            ...     print("Update installed, restart required")
-        """
-        try:
-            logger.info("Starting update download and installation")
-
-            # Check if update is available first
-            update_available, latest_version = self.check_for_updates()
-            if not update_available:
-                logger.info("No update available")
-                return False
-
-            # Download the update (tufup handles patch vs full archive automatically)
-            if progress_callback:
-                progress_callback(0, 100, f"Downloading update {latest_version}")
-
-            # Download targets
-            self.client.download_updates()
-
-            if progress_callback:
-                progress_callback(50, 100, "Applying update")
-
-            # Apply the update
-            self.client.apply_updates()
-
-            if progress_callback:
-                progress_callback(100, 100, "Update installed successfully")
-
-            logger.info(f"Update to version {latest_version} installed successfully")
+            logger.info("Opening download page in browser")
+            webbrowser.open(GITHUB_RELEASES_URL)
             return True
-
         except Exception as e:
-            logger.error(f"Error during update installation: {e}")
-            if progress_callback:
-                progress_callback(0, 0, f"Update failed: {str(e)}")
+            logger.error(f"Error opening download page: {e}")
             return False
-
-    def restart_application(self):
-        """
-        Restart the application to complete update.
-
-        Notes:
-            - Closes current process and starts new one
-            - Use after successful update installation
-        """
-        try:
-            logger.info("Restarting application")
-            python = sys.executable
-            os.execl(python, python, *sys.argv)
-        except Exception as e:
-            logger.error(f"Error restarting application: {e}")
-            raise UpdaterError(f"Could not restart application: {e}")
 
 
 # Convenience functions for easy integration
@@ -262,21 +134,18 @@ def check_for_updates() -> Tuple[bool, Optional[str]]:
         return False, None
 
 
-def download_and_install_update(progress_callback=None) -> bool:
+def open_download_page() -> bool:
     """
-    Convenience function to download and install update.
-
-    Args:
-        progress_callback: Optional progress callback function
+    Convenience function to open download page in browser.
 
     Returns:
-        bool: True if update successful
+        bool: True if successful
     """
     try:
         updater = BuenaLiveUpdater()
-        return updater.download_and_install_update(progress_callback)
+        return updater.open_download_page()
     except Exception as e:
-        logger.error(f"Error installing update: {e}")
+        logger.error(f"Error opening download page: {e}")
         return False
 
 
@@ -290,5 +159,7 @@ if __name__ == "__main__":
     available, latest = check_for_updates()
     if available:
         print(f"Update available: {latest}")
+        print("Opening download page...")
+        open_download_page()
     else:
         print("No updates available")

@@ -1553,11 +1553,14 @@ class AutomationGUI:
             "Actualización disponible",
             f"Nueva versión {latest_version} disponible.\n"
             f"Versión actual: {__version__}\n\n"
-            f"¿Descargar e instalar ahora?",
+            f"¿Abrir página de descarga?",
             icon='info'
         )
         if response:
-            self.download_and_install_ui()
+            updater.open_download_page()
+            self.update_status_label.config(
+                text=f"Descargá v{latest_version} desde tu navegador"
+            )
 
     def check_for_updates_ui(self):
         """Check for updates from the UI"""
@@ -1596,11 +1599,14 @@ class AutomationGUI:
             "Actualización disponible",
             f"Nueva versión {latest_version} disponible.\n"
             f"Versión actual: {__version__}\n\n"
-            f"¿Descargar e instalar ahora?"
+            f"¿Abrir página de descarga?"
         )
 
         if response:
-            self.download_and_install_ui()
+            updater.open_download_page()
+            self.update_status_label.config(
+                text=f"Descargá v{latest_version} desde tu navegador"
+            )
 
     def _no_update_available(self):
         """Handle no update available"""
@@ -1619,93 +1625,6 @@ class AutomationGUI:
         messagebox.showerror(
             "Error",
             f"No se pudo verificar actualizaciones:\n{error_message}"
-        )
-
-    def download_and_install_ui(self):
-        """Download and install update from UI"""
-        self.check_updates_button.config(state="disabled")
-        self.update_status_label.config(text="Descargando actualización...")
-        self.update_progress.config(mode='determinate')
-        self.update_progress['value'] = 0
-        self.update_progress.pack(pady=5)
-
-        thread = threading.Thread(target=self._download_install_thread)
-        thread.daemon = True
-        thread.start()
-
-    def _download_install_thread(self):
-        """Thread for downloading and installing update"""
-        try:
-            def progress_callback(downloaded, total, message):
-                # Update UI from this thread
-                if total > 0:
-                    progress = (downloaded / total) * 100
-                    self.root.after(0, self._update_progress, progress, message)
-
-            success = updater.download_and_install_update(progress_callback)
-
-            if success:
-                self.root.after(0, self._install_success)
-            else:
-                self.root.after(0, self._install_failed)
-
-        except Exception as e:
-            self.root.after(0, self._install_error, str(e))
-
-    def _update_progress(self, progress, message):
-        """Update progress bar and status"""
-        self.update_progress['value'] = progress
-        self.update_status_label.config(text=message)
-
-    def _install_success(self):
-        """Handle successful installation"""
-        self.update_progress['value'] = 100
-        self.update_status_label.config(text="Actualización instalada")
-
-        response = messagebox.askyesno(
-            "Actualización completa",
-            "La actualización se instaló correctamente.\n"
-            "¿Reiniciar la aplicación ahora?"
-        )
-
-        if response:
-            # Restart application
-            if self.automation and self.automation.driver:
-                self.automation.driver.quit()
-
-            try:
-                updater_instance = updater.BuenaLiveUpdater()
-                updater_instance.restart_application()
-            except Exception as e:
-                messagebox.showerror(
-                    "Error",
-                    f"No se pudo reiniciar automáticamente:\n{e}\n\n"
-                    f"Por favor, reiniciá manualmente la aplicación."
-                )
-                self.root.destroy()
-        else:
-            self.check_updates_button.config(state="normal")
-
-    def _install_failed(self):
-        """Handle failed installation"""
-        self.update_progress.config(mode='indeterminate')
-        self.update_progress.pack_forget()
-        self.update_status_label.config(text="Error al instalar actualización")
-        self.check_updates_button.config(state="normal")
-        messagebox.showerror(
-            "Error",
-            "No se pudo instalar la actualización.\nIntentá más tarde."
-        )
-
-    def _install_error(self, error_message):
-        """Handle installation error"""
-        self.update_progress.config(mode='indeterminate')
-        self.update_progress.pack_forget()
-        self.update_status_label.config(text="Error al instalar actualización")
-        self.check_updates_button.config(state="normal")
-        messagebox.showerror(
-            "Error",
-            f"Error durante la instalación:\n{error_message}"
         )
 
     def run(self):

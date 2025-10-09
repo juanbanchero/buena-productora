@@ -40,10 +40,8 @@ hiddenimports = [
     'selenium.webdriver.chrome.service',
     'selenium.webdriver.chrome.options',
     'cryptography',
-    'tufup',
-    'tufup.client',
-    'bsdiff4',
     'packaging',
+    'requests',
     'webdriver_manager',
     'webdriver_manager.chrome',
 ]
