@@ -149,7 +149,7 @@ excludes = [
     'bz2', 'lzma',
 
     # Development/packaging tools
-    'pip', 'wheel', 'setuptools._distutils',
+    'pip', 'setuptools._distutils',
 
     # Documentation generators
     'sphinx', 'docutils',
