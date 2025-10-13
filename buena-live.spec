@@ -151,7 +151,7 @@ if sys.platform == 'darwin':
     )
 
 else:
-    # Windows configuration (optimized for size and performance)
+    # Windows configuration (optimized for compatibility and stability)
     exe = EXE(
         pyz,
         a.scripts,
@@ -162,12 +162,8 @@ else:
         name='TicketeraBuena',
         debug=False,
         bootloader_ignore_signals=False,
-        strip=True,                 # Strip binary for smaller size
-        upx=True,                   # Enable UPX compression
-        upx_exclude=[
-            'vcruntime140.dll',     # Don't compress Windows runtime DLLs
-            'python3*.dll',         # Don't compress Python DLL
-        ],
+        strip=False,                # Keep symbols - stripping causes issues on Windows
+        upx=False,                  # Disable UPX - causes DLL loading failures with Python 3.11+
         runtime_tmpdir=None,
         console=False,              # No console window (GUI app)
         disable_windowed_traceback=False,
@@ -176,8 +172,4 @@ else:
         codesign_identity=None,
         entitlements_file=None,
         icon=str(app_dir / 'assets' / 'buena-logo.ico'),
-        # Additional optimization flags
-        bootloader_options={
-            'append_pkg': False,    # Faster startup
-        },
     )

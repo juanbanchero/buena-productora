@@ -22,7 +22,6 @@ Output:
     - dist/TicketeraBuena-Setup.exe: Windows installer (if --installer specified)
 """
 
-import os
 import sys
 import shutil
 import subprocess
@@ -34,9 +33,9 @@ if sys.platform == "win32":
     # Force UTF-8 encoding for stdout/stderr on Windows
     import io
     if isinstance(sys.stdout, io.TextIOWrapper):
-        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stdout.reconfigure(encoding='utf-8')  # type: ignore
     if isinstance(sys.stderr, io.TextIOWrapper):
-        sys.stderr.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')  # type: ignore
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
@@ -57,7 +56,7 @@ def clean_build_dirs():
 def build_exe():
     """Build the Windows executable using PyInstaller with optimizations."""
     print(f"\nBuilding TicketeraBuena v{__version__} for Windows...")
-    print("Optimizations enabled: module exclusions, UPX compression, binary stripping")
+    print("Optimizations enabled: module exclusions, bytecode optimization")
 
     # Check if spec file exists
     spec_file = project_root / "buena-live.spec"
@@ -65,12 +64,7 @@ def build_exe():
         print(f"ERROR: Spec file not found: {spec_file}")
         return False
 
-    # Check if UPX is available for better compression
-    upx_available = shutil.which("upx") is not None
-    if upx_available:
-        print("  UPX found: Will compress binaries for smaller size")
-    else:
-        print("  UPX not found: Install from https://upx.github.io/ for better compression")
+    print("  Note: UPX compression disabled for Python 3.11+ compatibility")
 
     # Run PyInstaller with optimizations
     cmd = [
@@ -322,18 +316,17 @@ def main():
         print(f"  Installer: dist/TicketeraBuena-Setup-{__version__}.exe")
     print("\nOptimizations applied:")
     print("  ✓ Module exclusions (unittest, sqlite3, xml, etc.)")
-    print("  ✓ UPX compression for smaller size")
-    print("  ✓ Binary stripping")
     print("  ✓ Python bytecode optimization level 2")
+    print("  ✓ Windows-compatible packaging (no UPX/strip for stability)")
     print("\nNext steps:")
     print("  1. Test the application: dist\\TicketeraBuena.exe")
     print("  2. Verify Unicode characters display correctly (✓, ✗, ⚠)")
     print("  3. Distribute the installer (if created)")
     print("  4. Publish update using: python build_scripts/publish_update.py")
     print("\nBuild tips:")
-    print("  • Use --fast for quicker development builds")
-    print("  • Install UPX for even better compression: https://upx.github.io/")
     print("  • Use --clean to force a fresh build")
+    print("  • Test on clean Windows system without Python installed")
+    print("  • Note: UPX disabled for Python 3.11+ stability")
 
     return 0
 

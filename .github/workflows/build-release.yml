@@ -41,9 +41,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: macos-build
-        path: |
-          dist/TicketeraBuena.app
-          dist/TicketeraBuena-*.dmg
+        path: dist/TicketeraBuena-*.dmg
 
   build-windows:
     name: Build Windows
@@ -118,9 +116,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: windows-build
-        path: |
-          dist/TicketeraBuena.exe
-          dist/TicketeraBuena-Setup-*.exe
+        path: dist/TicketeraBuena-Setup-*.exe
         if-no-files-found: warn
 
   create-release:
@@ -161,8 +157,11 @@ jobs:
     - name: Prepare release files
       run: |
         mkdir -p release-files
-        find macos-artifacts/ -name "*.dmg" -exec cp {} release-files/ \;
-        find windows-artifacts/ -name "*.exe" -exec cp {} release-files/ \;
+        # Copy only .dmg for macOS
+        find macos-artifacts/ -name "*.dmg" -exec cp {} release-files/ \; 2>/dev/null || true
+        # Copy only Setup installer for Windows
+        find windows-artifacts/ -name "TicketeraBuena-Setup-*.exe" -exec cp {} release-files/ \; 2>/dev/null || true
+        echo "=== Release files prepared ==="
         ls -lh release-files/
 
     - name: Create Release
