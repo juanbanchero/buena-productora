@@ -95,12 +95,22 @@ jobs:
       run: |
         python build_scripts/build_windows.py --clean --installer
 
+    - name: List build output (debugging)
+      if: always()
+      run: |
+        echo "=== Listing dist directory ==="
+        dir dist
+      shell: powershell
+
     - name: Upload Windows artifacts
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: windows-build
         path: |
+          dist/TicketeraBuena.exe
           dist/TicketeraBuena-Setup-*.exe
+        if-no-files-found: warn
 
   create-release:
     name: Create Release
@@ -114,12 +124,14 @@ jobs:
       uses: actions/checkout@v3
 
     - name: Download macOS artifacts
+      continue-on-error: true
       uses: actions/download-artifact@v4
       with:
         name: macos-build
         path: macos-artifacts/
 
     - name: Download Windows artifacts
+      continue-on-error: true
       uses: actions/download-artifact@v4
       with:
         name: windows-build
