@@ -39,42 +39,120 @@ if sys.platform == 'win32':
         print(f"Including ChromeDriver: {chromedriver_path}")
 
 # Hidden imports (modules not automatically detected by PyInstaller)
+# Comprehensive list to prevent runtime import errors
 hiddenimports = [
+    # Google Sheets
     'gspread',
+    'gspread.auth',
+    'gspread.client',
+    'gspread.utils',
+    'gspread.exceptions',
+
+    # Google Authentication (CRITICAL - required for Google Sheets)
     'google.oauth2.service_account',
+    'google.auth',
+    'google.auth.transport',
+    'google.auth.transport.requests',
+    'google.auth._default',
+    'google.auth.crypt',
+    'google.auth.crypt._python_rsa',
+    'google.oauth2.credentials',
+
+    # Selenium WebDriver
     'selenium',
     'selenium.webdriver.common.by',
     'selenium.webdriver.support.ui',
     'selenium.webdriver.support.expected_conditions',
     'selenium.webdriver.chrome.service',
     'selenium.webdriver.chrome.options',
+    'selenium.common.exceptions',
+    'selenium.webdriver.remote.remote_connection',
+    'selenium.webdriver.remote.webdriver',
+    'selenium.webdriver.remote.webelement',
+
+    # Cryptography (CRITICAL - credential_manager.py uses Fernet)
     'cryptography',
+    'cryptography.fernet',
+    'cryptography.hazmat',
+    'cryptography.hazmat.primitives',
+    'cryptography.hazmat.backends',
+    'cryptography.hazmat.backends.openssl',
+    '_cffi_backend',
+
+    # HTTP/HTTPS Networking
     'packaging',
     'requests',
+    'requests.adapters',
+    'requests.auth',
+    'requests.models',
+    'requests.sessions',
+    'requests.utils',
+
+    # urllib3 (required by requests and selenium)
+    'urllib3',
+    'urllib3.connection',
+    'urllib3.response',
+    'urllib3._request_methods',
+    'urllib3.http2',
+    'urllib3.util',
+    'urllib3.util.ssl_',
+    'urllib3.connectionpool',
+    'urllib3.poolmanager',
+    'urllib3.exceptions',
+
+    # WebDriver Manager
     'webdriver_manager',
     'webdriver_manager.chrome',
+    'webdriver_manager.core',
+    'webdriver_manager.core.utils',
+
+    # Async support (Selenium 4.x uses trio)
+    'trio._core',
+    'trio._socket',
+    'sniffio',
+
+    # Standard library modules needed by dependencies
+    'zipfile',           # Required by importlib.metadata
+    'tarfile',           # Required by webdriver-manager
+    'gzip',              # Required by urllib3/requests compression
+    'importlib.metadata',
+    'webbrowser',        # Required by updater.py
+    'logging',           # Required by multiple libraries
 ]
 
 # Exclude unnecessary modules to reduce size
+# IMPORTANT: Only exclude modules that are truly unused to avoid runtime errors
+# ALL modules listed here have been verified as unused by dependencies
 excludes = [
-    # Development/testing modules
-    'pytest', 'unittest', 'test', 'tests',
-    # Unused standard library modules
-    'pdb', 'doctest', 'difflib', 'pydoc', 'inspect',
-    # Web servers not needed
-    'http.server', 'wsgiref', 'xmlrpc',
-    # Unused networking
+    # Development/testing frameworks
+    'pytest', 'test', 'tests', '_pytest',
+
+    # Debugging tools
+    'pdb', 'pdb++', 'ipdb', 'doctest', 'pydoc',
+
+    # Web servers (not needed - we're a client)
+    'http.server', 'wsgiref', 'bottle', 'flask', 'django',
+
+    # Unused networking protocols
     'ftplib', 'imaplib', 'poplib', 'smtplib', 'telnetlib',
-    # Unused data formats
-    'xml', 'xmlrpc', 'plistlib',
-    # GUI frameworks we're not using
-    'matplotlib', 'PyQt5', 'PyQt6', 'wx',
-    # Database modules not needed
-    'sqlite3', 'dbm',
-    # Unused compression
-    'bz2', 'lzma', 'zipfile', 'tarfile',
-    # Development tools
-    'setuptools', 'pip', 'distutils',
+
+    # GUI frameworks we're not using (we use tkinter only)
+    'matplotlib', 'PyQt5', 'PyQt6', 'PySide2', 'PySide6', 'wx',
+
+    # Database modules (not needed - we use Google Sheets)
+    'dbm', 'sqlite3',
+
+    # Data analysis (pandas is in requirements.txt but COMPLETELY UNUSED)
+    'pandas', 'numpy',
+
+    # Unused compression formats (keep zipfile, gzip, tarfile)
+    'bz2', 'lzma',
+
+    # Development/packaging tools
+    'pip', 'wheel', 'setuptools._distutils',
+
+    # Documentation generators
+    'sphinx', 'docutils',
 ]
 
 # Analysis: scan the main script and its dependencies
