@@ -49,12 +49,33 @@ import updater
 
 # Fix for PyInstaller --noconsole mode on Windows
 # When packaged as a windowed app, sys.stdout/stderr are None, causing ChromeDriver to crash
+# Also force UTF-8 encoding to support Unicode characters (✓, ✗, ⚠, etc.)
 if sys.stdout is None:
-    sys.stdout = open(os.devnull, "w")
+    sys.stdout = open(os.devnull, "w", encoding="utf-8")
 if sys.stderr is None:
-    sys.stderr = open(os.devnull, "w")
+    sys.stderr = open(os.devnull, "w", encoding="utf-8")
 if sys.stdin is None:
-    sys.stdin = open(os.devnull, "r")
+    sys.stdin = open(os.devnull, "r", encoding="utf-8")
+
+# Force UTF-8 encoding on Windows to handle Unicode characters in logs
+if sys.platform == 'win32':
+    # Reconfigure stdout/stderr with UTF-8 encoding if they exist
+    if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+        try:
+            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        except (AttributeError, ValueError):
+            # Fallback for older Python versions or if reconfigure fails
+            import io
+            if not isinstance(sys.stdout, io.TextIOWrapper) or sys.stdout.encoding != 'utf-8':
+                sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+
+    if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
+        try:
+            sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+        except (AttributeError, ValueError):
+            import io
+            if not isinstance(sys.stderr, io.TextIOWrapper) or sys.stderr.encoding != 'utf-8':
+                sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 class TicketAutomation:
     def __init__(self, headless_mode=True):

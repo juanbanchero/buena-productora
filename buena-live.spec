@@ -55,6 +55,28 @@ hiddenimports = [
     'webdriver_manager.chrome',
 ]
 
+# Exclude unnecessary modules to reduce size
+excludes = [
+    # Development/testing modules
+    'pytest', 'unittest', 'test', 'tests',
+    # Unused standard library modules
+    'pdb', 'doctest', 'difflib', 'pydoc', 'inspect',
+    # Web servers not needed
+    'http.server', 'wsgiref', 'xmlrpc',
+    # Unused networking
+    'ftplib', 'imaplib', 'poplib', 'smtplib', 'telnetlib',
+    # Unused data formats
+    'xml', 'xmlrpc', 'plistlib',
+    # GUI frameworks we're not using
+    'matplotlib', 'PyQt5', 'PyQt6', 'wx',
+    # Database modules not needed
+    'sqlite3', 'dbm',
+    # Unused compression
+    'bz2', 'lzma', 'zipfile', 'tarfile',
+    # Development tools
+    'setuptools', 'pip', 'distutils',
+]
+
 # Analysis: scan the main script and its dependencies
 a = Analysis(
     ['main.py'],                    # Main entry point
@@ -65,11 +87,12 @@ a = Analysis(
     hookspath=[],                   # Custom hooks directory
     hooksconfig={},                 # Hooks configuration
     runtime_hooks=[],               # Runtime hook scripts
-    excludes=[],                    # Modules to exclude
+    excludes=excludes,              # Modules to exclude (defined above)
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
     noarchive=False,
+    optimize=2,                     # Python optimization level (removes docstrings)
 )
 
 # PYZ: Create Python archive
@@ -128,7 +151,7 @@ if sys.platform == 'darwin':
     )
 
 else:
-    # Windows configuration
+    # Windows configuration (optimized for size and performance)
     exe = EXE(
         pyz,
         a.scripts,
@@ -139,9 +162,12 @@ else:
         name='TicketeraBuena',
         debug=False,
         bootloader_ignore_signals=False,
-        strip=False,
-        upx=True,
-        upx_exclude=[],
+        strip=True,                 # Strip binary for smaller size
+        upx=True,                   # Enable UPX compression
+        upx_exclude=[
+            'vcruntime140.dll',     # Don't compress Windows runtime DLLs
+            'python3*.dll',         # Don't compress Python DLL
+        ],
         runtime_tmpdir=None,
         console=False,              # No console window (GUI app)
         disable_windowed_traceback=False,
@@ -150,4 +176,8 @@ else:
         codesign_identity=None,
         entitlements_file=None,
         icon=str(app_dir / 'assets' / 'buena-logo.ico'),
+        # Additional optimization flags
+        bootloader_options={
+            'append_pkg': False,    # Faster startup
+        },
     )
