@@ -29,6 +29,15 @@ import subprocess
 import argparse
 from pathlib import Path
 
+# Fix Unicode encoding issues on Windows
+if sys.platform == "win32":
+    # Force UTF-8 encoding for stdout/stderr on Windows
+    import io
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout.reconfigure(encoding='utf-8')
+    if isinstance(sys.stderr, io.TextIOWrapper):
+        sys.stderr.reconfigure(encoding='utf-8')
+
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
@@ -99,7 +108,15 @@ def build_exe():
     return True
 
 def create_nsis_script():
-    """Create NSIS installer script."""
+    """Create NSIS installer script with absolute paths."""
+    # Get absolute path to icon for NSIS
+    icon_path = (project_root / "assets" / "buena-logo.ico").resolve()
+    icon_path_win = str(icon_path).replace('/', '\\')
+
+    # Get absolute path to dist directory
+    dist_path = (project_root / "dist").resolve()
+    dist_path_win = str(dist_path).replace('/', '\\')
+
     nsis_script = f"""
 ; TicketeraBuena NSIS Installer Script
 ; Generated automatically by build_windows.py
@@ -114,15 +131,15 @@ def create_nsis_script():
 
 ; General configuration
 Name "${{APP_NAME}} ${{APP_VERSION}}"
-OutFile "TicketeraBuena-Setup-${{APP_VERSION}}.exe"
+OutFile "{dist_path_win}\\TicketeraBuena-Setup-${{APP_VERSION}}.exe"
 InstallDir "$PROGRAMFILES\\${{APP_NAME}}"
 InstallDirRegKey HKLM "Software\\${{APP_NAME}}" "Install_Dir"
 RequestExecutionLevel admin
 
 ; Interface Settings
 !define MUI_ABORTWARNING
-!define MUI_ICON "assets\\buena-logo.ico"
-!define MUI_UNICON "assets\\buena-logo.ico"
+!define MUI_ICON "{icon_path_win}"
+!define MUI_UNICON "{icon_path_win}"
 
 ; Pages
 !insertmacro MUI_PAGE_WELCOME
@@ -141,7 +158,7 @@ Section "Install"
     SetOutPath "$INSTDIR"
 
     ; Add files
-    File "dist\\${{APP_EXE}}"
+    File "{dist_path_win}\\${{APP_EXE}}"
 
     ; Create uninstaller
     WriteUninstaller "$INSTDIR\\Uninstall.exe"
@@ -288,15 +305,20 @@ def main():
         return 1
 
     # Create installer if requested
+    installer_success = True
     if args.installer:
-        create_installer()
+        installer_success = create_installer()
+        if not installer_success:
+            print("\nWARNING: Installer creation failed, but executable was built successfully")
+            # Don't fail the build if only installer failed
+            # return 1
 
     print("\n" + "=" * 60)
     print("Build complete!")
     print("=" * 60)
     print(f"\nOutput:")
     print(f"  Executable: dist/TicketeraBuena.exe")
-    if args.installer:
+    if args.installer and installer_success:
         print(f"  Installer: dist/TicketeraBuena-Setup-{__version__}.exe")
     print("\nOptimizations applied:")
     print("  ✓ Module exclusions (unittest, sqlite3, xml, etc.)")

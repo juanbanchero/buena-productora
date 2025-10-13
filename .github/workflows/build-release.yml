@@ -103,6 +103,8 @@ jobs:
     - name: Build Windows app
       run: |
         python build_scripts/build_windows.py --clean --installer
+      env:
+        PYTHONIOENCODING: utf-8
 
     - name: List build output (debugging)
       if: always()
