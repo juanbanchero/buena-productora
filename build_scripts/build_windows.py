@@ -178,7 +178,7 @@ def verify_icon():
         print(f"ERROR: Icon file not found: {icon_path}")
         return False
 
-    print(f"✓ Icon file found: {icon_path}")
+    print(f"[OK] Icon file found: {icon_path}")
     return True
 
 def create_installer():
