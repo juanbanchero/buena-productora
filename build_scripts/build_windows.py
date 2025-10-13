@@ -103,8 +103,8 @@ RequestExecutionLevel admin
 
 ; Interface Settings
 !define MUI_ABORTWARNING
-!define MUI_ICON "${{NSISDIR}}\\Contrib\\Graphics\\Icons\\modern-install.ico"
-!define MUI_UNICON "${{NSISDIR}}\\Contrib\\Graphics\\Icons\\modern-uninstall.ico"
+!define MUI_ICON "assets\\buena-logo.ico"
+!define MUI_UNICON "assets\\buena-logo.ico"
 
 ; Pages
 !insertmacro MUI_PAGE_WELCOME
@@ -170,6 +170,17 @@ SectionEnd
 
     return nsis_file
 
+def verify_icon():
+    """Verify that the icon file exists for NSIS."""
+    icon_path = project_root / "assets" / "buena-logo.ico"
+
+    if not icon_path.exists():
+        print(f"ERROR: Icon file not found: {icon_path}")
+        return False
+
+    print(f"✓ Icon file found: {icon_path}")
+    return True
+
 def create_installer():
     """Create NSIS installer."""
     print("\nCreating NSIS installer...")
@@ -180,6 +191,11 @@ def create_installer():
         print("WARNING: NSIS not found. Download from https://nsis.sourceforge.io/")
         print("Skipping installer creation")
         return False
+
+    # Verify icon exists
+    if not verify_icon():
+        print("WARNING: Icon not found. Installer will use default icon.")
+        # Continue anyway, NSIS will use default if icon is missing
 
     # Create NSIS script
     nsis_script = create_nsis_script()

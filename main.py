@@ -47,6 +47,15 @@ from credential_manager import CredentialManager
 from version import __version__
 import updater
 
+# Fix for PyInstaller --noconsole mode on Windows
+# When packaged as a windowed app, sys.stdout/stderr are None, causing ChromeDriver to crash
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w")
+if sys.stdin is None:
+    sys.stdin = open(os.devnull, "r")
+
 class TicketAutomation:
     def __init__(self, headless_mode=True):
         self.driver = None
@@ -94,6 +103,12 @@ class TicketAutomation:
             self.log("Configurando ChromeDriver...")
             service = None
 
+            # Windows-specific: creation_flags to prevent ChromeDriver console window
+            # 0x08000000 = CREATE_NO_WINDOW flag for subprocess creation
+            service_kwargs = {}
+            if sys.platform == 'win32':
+                service_kwargs['popen_kw'] = {"creation_flags": 0x08000000}
+
             # Estrategia 1: Intentar usar ChromeDriver empaquetado (Windows .exe)
             if getattr(sys, 'frozen', False):
                 # Running as compiled executable
@@ -102,7 +117,7 @@ class TicketAutomation:
 
                 if os.path.exists(chromedriver_path):
                     self.log(f"Usando ChromeDriver empaquetado: {chromedriver_path}")
-                    service = Service(chromedriver_path)
+                    service = Service(chromedriver_path, **service_kwargs)
                 else:
                     self.log("ChromeDriver empaquetado no encontrado, usando webdriver-manager...")
 
@@ -110,12 +125,12 @@ class TicketAutomation:
             if service is None:
                 self.log("Descargando ChromeDriver automáticamente...")
                 try:
-                    service = Service(ChromeDriverManager().install())
+                    service = Service(ChromeDriverManager().install(), **service_kwargs)
                 except Exception as wdm_error:
                     self.log(f"Error con webdriver-manager: {wdm_error}")
                     # Último intento: chromedriver en PATH
                     self.log("Intentando usar chromedriver desde PATH...")
-                    service = Service()
+                    service = Service(**service_kwargs)
 
             # Crear driver con el servicio configurado
             self.driver = webdriver.Chrome(service=service, options=chrome_options)
