@@ -25,6 +25,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
+    - name: Create credentials.json from secret
+      run: |
+        echo '${{ secrets.GOOGLE_CREDENTIALS }}' > credentials.json
+
     - name: Install create-dmg
       run: |
         brew install create-dmg
@@ -89,6 +93,11 @@ jobs:
 
         echo "ChromeDriver downloaded successfully"
         dir chromedriver.exe
+      shell: powershell
+
+    - name: Create credentials.json from secret
+      run: |
+        echo '${{ secrets.GOOGLE_CREDENTIALS }}' | Out-File -FilePath credentials.json -Encoding utf8
       shell: powershell
 
     - name: Build Windows app
