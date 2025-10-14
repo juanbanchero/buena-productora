@@ -295,8 +295,12 @@ class TicketAutomation:
             if not os.path.exists(self.credentials_file):
                 self.log("✗ No se encuentra el archivo credentials.json de Google")
                 return None
-                
-            creds = Credentials.from_service_account_file(self.credentials_file, scopes=scope)
+
+            # Leer credentials.json con utf-8-sig para manejar BOM en Windows
+            with open(self.credentials_file, 'r', encoding='utf-8-sig') as f:
+                creds_data = json.load(f)
+
+            creds = Credentials.from_service_account_info(creds_data, scopes=scope)
             client = gspread.authorize(creds)
             
             if '/d/' in sheet_url:
@@ -577,45 +581,102 @@ class TicketAutomation:
                 if dni != dni_raw:
                     self.log(f"  DNI limpiado: '{dni_raw}' → '{dni}'")
 
-                # Leer tipo de documento (CI, DNI, Pasaporte, Otro)
+                # Leer tipo de documento del Sheet (DNI, CI, Pasaporte, Otro)
                 tipo_documento = str(row_data.get('Tipo', 'DNI')).strip()
 
                 # PASO 6b: Seleccionar tipo de documento
-                self.log(f"6b. Seleccionando tipo de documento: {tipo_documento}")
+                self.log(f"6b. Seleccionando tipo de documento del Sheet: {tipo_documento}")
 
-                # Click en el tercer listbox (tipo de documento)
+                # Encontrar todos los listbox buttons
                 tipo_doc_buttons = self.driver.find_elements(By.XPATH,
                     "//button[contains(@id, 'headlessui-listbox-button')]")
 
+                self.log(f"  Encontrados {len(tipo_doc_buttons)} listbox buttons en total")
+
                 if len(tipo_doc_buttons) >= 3:
                     # El tercer listbox es el de tipo de documento
-                    if self.headless_mode:
-                        self.driver.execute_script("arguments[0].click();", tipo_doc_buttons[2])
-                    else:
-                        tipo_doc_buttons[2].click()
+                    tipo_doc_button = tipo_doc_buttons[2]
 
-                    # Buscar y clickear el tipo de documento correcto
                     try:
-                        # Buscar opción que contenga el tipo de documento
-                        tipo_option = self.driver.find_element(By.XPATH,
-                            f"//li[contains(@id, 'headlessui-listbox-option') and (text()='{tipo_documento}' or contains(text(), '{tipo_documento}'))]")
-
+                        # Hacer click en el botón para abrir el dropdown
+                        self.log(f"  Abriendo dropdown de tipo de documento (botón índice 2)...")
                         if self.headless_mode:
-                            self.driver.execute_script("arguments[0].click();", tipo_option)
+                            self.driver.execute_script("arguments[0].click();", tipo_doc_button)
                         else:
-                            tipo_option.click()
+                            tipo_doc_button.click()
 
-                        self.log(f"  ✓ Tipo de documento seleccionado: {tipo_documento}")
-                    except:
-                        # Si no encuentra, seleccionar el primero por defecto
-                        self.wait_and_click(
-                            "//li[contains(@id, 'headlessui-listbox-option')][1]",
-                            timeout=3,
-                            description="primer tipo de documento"
-                        )
-                        self.log(f"  ⚠ No se encontró '{tipo_documento}', usando opción por defecto")
+                        # Esperar a que aparezcan las opciones
+                        time.sleep(0.5)
+
+                        # Listar TODAS las opciones disponibles en el dropdown
+                        opciones_elements = self.driver.find_elements(By.XPATH,
+                            "//li[contains(@id, 'headlessui-listbox-option')]//span[@class='font-normal block truncate']")
+                        opciones_disponibles = [opt.text.strip() for opt in opciones_elements]
+                        self.log(f"  Opciones disponibles en dropdown: {opciones_disponibles}")
+
+                        # Verificar si el tipo del Sheet está en las opciones del dropdown
+                        if tipo_documento in opciones_disponibles:
+                            # El tipo existe: buscar y hacer click en la opción EXACTA del Sheet
+                            self.log(f"  ✓ Tipo '{tipo_documento}' existe en el dropdown")
+
+                            # XPath que busca el texto exacto dentro del span
+                            tipo_option_xpath = f"//li[contains(@id, 'headlessui-listbox-option')]//span[@class='font-normal block truncate' and text()='{tipo_documento}']"
+
+                            tipo_option = WebDriverWait(self.driver, 5).until(
+                                EC.element_to_be_clickable((By.XPATH, tipo_option_xpath))
+                            )
+
+                            # Click en la opción
+                            if self.headless_mode:
+                                self.driver.execute_script("arguments[0].click();", tipo_option)
+                            else:
+                                tipo_option.click()
+
+                            self.log(f"  ✓ Tipo de documento seleccionado: {tipo_documento}")
+                            time.sleep(0.3)
+
+                        else:
+                            # El tipo del Sheet NO existe en el dropdown
+                            self.log(f"  ✗ ADVERTENCIA: '{tipo_documento}' NO está en el dropdown")
+                            self.log(f"  Opciones válidas son: {opciones_disponibles}")
+
+                            # Si es 'CI', intentar con 'DNI' (equivalente común)
+                            if tipo_documento.upper() == 'CI' and 'DNI' in opciones_disponibles:
+                                self.log(f"  Mapeando 'CI' → 'DNI'...")
+
+                                tipo_option_xpath = "//li[contains(@id, 'headlessui-listbox-option')]//span[@class='font-normal block truncate' and text()='DNI']"
+                                tipo_option = WebDriverWait(self.driver, 3).until(
+                                    EC.element_to_be_clickable((By.XPATH, tipo_option_xpath))
+                                )
+                                if self.headless_mode:
+                                    self.driver.execute_script("arguments[0].click();", tipo_option)
+                                else:
+                                    tipo_option.click()
+
+                                self.log(f"  ✓ Seleccionado 'DNI' como equivalente de 'CI'")
+                                time.sleep(0.3)
+                            else:
+                                # No hay mapeo: cerrar dropdown y usar lo que esté por defecto
+                                self.driver.execute_script("document.body.click();")
+                                self.log(f"  ⚠ No hay equivalente para '{tipo_documento}', usando valor por defecto del dropdown")
+                                time.sleep(0.3)
+
+                    except Exception as e:
+                        self.log(f"  ✗ Error seleccionando tipo de documento: {str(e)}")
+                        import traceback
+                        self.log(f"  Detalle: {traceback.format_exc()}")
+
+                        # Intentar cerrar el dropdown
+                        try:
+                            self.driver.execute_script("document.body.click();")
+                            time.sleep(0.3)
+                        except:
+                            pass
+
+                        self.log(f"  ⚠ Continuando con valor por defecto")
+
                 else:
-                    self.log(f"  ⚠ Selector de tipo de documento no encontrado, continuando...")
+                    self.log(f"  ⚠ No se encontró selector de tipo de documento (esperaba 3+ listboxes, encontrados: {len(tipo_doc_buttons)})")
 
                 self.wait_and_send_keys("holders.0.firstName", nombre, description="nombre")
                 self.wait_and_send_keys("holders.0.lastName", apellido, description="apellido")
