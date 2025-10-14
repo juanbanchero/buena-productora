@@ -403,7 +403,7 @@ class TicketAutomation:
         start_time = time.time()  # Inicio del timer de performance
         try:
             self.log(f"\n=== Procesando fila {row_number}: {row_data.get('Nombre')} {row_data.get('Apellido')} ===")
-            
+
             # PASO 1: Seleccionar función
             funcion = str(row_data.get('Función', '')).strip()
             if funcion:
@@ -423,39 +423,88 @@ class TicketAutomation:
                     funcion_buttons[0].click()
 
                 # Esperar que se desplieguen las opciones
-                time.sleep(0.3)
+                time.sleep(0.5)
+
+                # Listar TODAS las opciones disponibles
+                opciones_elements = self.driver.find_elements(By.XPATH,
+                    "//li[contains(@id, 'headlessui-listbox-option')]//span[@class='font-semibold block truncate']")
+                opciones_disponibles = [opt.text.strip() for opt in opciones_elements]
+                self.log(f"  Opciones de función disponibles: {opciones_disponibles}")
 
                 if funcion:
-                    # Buscar la función específica por texto exacto o parcial
-                    try:
-                        # Intentar match exacto primero
-                        funcion_option = self.driver.find_element(By.XPATH,
-                            f"//li[contains(@id, 'headlessui-listbox-option')]//*[contains(text(), '{funcion}')]/ancestor::li")
-                        if self.headless_mode:
-                            self.driver.execute_script("arguments[0].click();", funcion_option)
-                        else:
-                            funcion_option.click()
-                        self.log(f"  ✓ Función seleccionada: {funcion}")
-                    except:
-                        # Si no encuentra, intentar con el texto contenido en el span
+                    # Verificar si la función del Sheet está en las opciones del dropdown
+                    if funcion in opciones_disponibles:
+                        # La función existe: buscar y hacer click en la opción EXACTA del Sheet
+                        self.log(f"  ✓ Función '{funcion}' existe en el dropdown")
+
+                        # XPath que busca el texto exacto dentro del span
+                        funcion_option_xpath = f"//li[contains(@id, 'headlessui-listbox-option')]//span[@class='font-semibold block truncate' and text()='{funcion}']"
+
                         try:
-                            funcion_option = self.driver.find_element(By.XPATH,
-                                f"//li[contains(@id, 'headlessui-listbox-option')]//span[contains(text(), '{funcion}')]/ancestor::li")
+                            funcion_option = WebDriverWait(self.driver, 5).until(
+                                EC.element_to_be_clickable((By.XPATH, funcion_option_xpath))
+                            )
+
+                            # Click en la opción
                             if self.headless_mode:
                                 self.driver.execute_script("arguments[0].click();", funcion_option)
                             else:
                                 funcion_option.click()
+
                             self.log(f"  ✓ Función seleccionada: {funcion}")
+                            time.sleep(0.3)
+
+                        except Exception as e:
+                            self.log(f"  ✗ Error haciendo click en función: {e}")
+                            # Si falla el click, intentar cerrar dropdown y reportar error
+                            try:
+                                self.driver.execute_script("document.body.click();")
+                            except:
+                                pass
+
+                            # Actualizar Sheet con error
+                            if self.sheet:
+                                try:
+                                    error_msg = f"ERROR: No se pudo seleccionar función '{funcion}'"
+                                    self.sheet.update_cell(self.current_row, self.get_column_index('Estado'), error_msg)
+                                except:
+                                    pass
+
+                            self.log(f"  ⏭️  Saltando esta entrada...")
+                            self.driver.get("https://pos.buenalive.com/events")
+                            time.sleep(2)
+                            return
+
+                    else:
+                        # La función del Sheet NO existe en el dropdown - ERROR CRÍTICO
+                        self.log(f"  ✗✗✗ ERROR CRÍTICO: Función '{funcion}' NO existe en el dropdown ✗✗✗")
+                        self.log(f"  Funciones válidas del evento: {opciones_disponibles}")
+                        self.log(f"  Función en Google Sheet: '{funcion}'")
+
+                        # Cerrar el dropdown
+                        try:
+                            self.driver.execute_script("document.body.click();")
+                            time.sleep(0.3)
                         except:
-                            # Si no encuentra la función exacta, usar la primera
-                            self.log(f"  ⚠ No se encontró '{funcion}', usando primera disponible")
-                            self.wait_and_click(
-                                "//li[contains(@id, 'headlessui-listbox-option')][1]",
-                                timeout=5,
-                                description="primera función"
-                            )
+                            pass
+
+                        # Actualizar Sheet con error
+                        if self.sheet:
+                            try:
+                                error_msg = f"ERROR: Función '{funcion}' no válida. Opciones: {', '.join(opciones_disponibles)}"
+                                self.sheet.update_cell(self.current_row, self.get_column_index('Estado'), error_msg)
+                            except:
+                                pass
+
+                        # SKIP esta entrada
+                        self.log(f"  ⏭️  Saltando esta entrada y continuando con la siguiente...")
+                        self.driver.get("https://pos.buenalive.com/events")
+                        time.sleep(2)
+                        return
+
                 else:
                     # Si no hay función especificada, usar la primera
+                    self.log("  Sin función especificada, usando primera disponible")
                     self.wait_and_click(
                         "//li[contains(@id, 'headlessui-listbox-option')][1]",
                         timeout=5,
@@ -869,39 +918,88 @@ class TicketAutomation:
                     funcion_buttons[0].click()
 
                 # Esperar que se desplieguen las opciones
-                time.sleep(0.3)
+                time.sleep(0.5)
+
+                # Listar TODAS las opciones disponibles
+                opciones_elements = self.driver.find_elements(By.XPATH,
+                    "//li[contains(@id, 'headlessui-listbox-option')]//span[@class='font-semibold block truncate']")
+                opciones_disponibles = [opt.text.strip() for opt in opciones_elements]
+                self.log(f"  Opciones de función disponibles: {opciones_disponibles}")
 
                 if funcion:
-                    # Buscar la función específica por texto exacto o parcial
-                    try:
-                        # Intentar match exacto primero
-                        funcion_option = self.driver.find_element(By.XPATH,
-                            f"//li[contains(@id, 'headlessui-listbox-option')]//*[contains(text(), '{funcion}')]/ancestor::li")
-                        if self.headless_mode:
-                            self.driver.execute_script("arguments[0].click();", funcion_option)
-                        else:
-                            funcion_option.click()
-                        self.log(f"  ✓ Función seleccionada: {funcion}")
-                    except:
-                        # Si no encuentra, intentar con el texto contenido en el span
+                    # Verificar si la función del Sheet está en las opciones del dropdown
+                    if funcion in opciones_disponibles:
+                        # La función existe: buscar y hacer click en la opción EXACTA del Sheet
+                        self.log(f"  ✓ Función '{funcion}' existe en el dropdown")
+
+                        # XPath que busca el texto exacto dentro del span
+                        funcion_option_xpath = f"//li[contains(@id, 'headlessui-listbox-option')]//span[@class='font-semibold block truncate' and text()='{funcion}']"
+
                         try:
-                            funcion_option = self.driver.find_element(By.XPATH,
-                                f"//li[contains(@id, 'headlessui-listbox-option')]//span[contains(text(), '{funcion}')]/ancestor::li")
+                            funcion_option = WebDriverWait(self.driver, 5).until(
+                                EC.element_to_be_clickable((By.XPATH, funcion_option_xpath))
+                            )
+
+                            # Click en la opción
                             if self.headless_mode:
                                 self.driver.execute_script("arguments[0].click();", funcion_option)
                             else:
                                 funcion_option.click()
+
                             self.log(f"  ✓ Función seleccionada: {funcion}")
+                            time.sleep(0.3)
+
+                        except Exception as e:
+                            self.log(f"  ✗ Error haciendo click en función: {e}")
+                            # Si falla el click, intentar cerrar dropdown y reportar error
+                            try:
+                                self.driver.execute_script("document.body.click();")
+                            except:
+                                pass
+
+                            # Actualizar Sheet con error
+                            if self.sheet:
+                                try:
+                                    error_msg = f"ERROR: No se pudo seleccionar función '{funcion}'"
+                                    self.sheet.update_cell(self.current_row, self.get_column_index('Estado'), error_msg)
+                                except:
+                                    pass
+
+                            self.log(f"  ⏭️  Saltando esta entrada...")
+                            self.driver.get("https://pos.buenalive.com/events")
+                            time.sleep(2)
+                            return
+
+                    else:
+                        # La función del Sheet NO existe en el dropdown - ERROR CRÍTICO
+                        self.log(f"  ✗✗✗ ERROR CRÍTICO: Función '{funcion}' NO existe en el dropdown ✗✗✗")
+                        self.log(f"  Funciones válidas del evento: {opciones_disponibles}")
+                        self.log(f"  Función en Google Sheet: '{funcion}'")
+
+                        # Cerrar el dropdown
+                        try:
+                            self.driver.execute_script("document.body.click();")
+                            time.sleep(0.3)
                         except:
-                            # Si no encuentra la función exacta, usar la primera
-                            self.log(f"  ⚠ No se encontró '{funcion}', usando primera disponible")
-                            self.wait_and_click(
-                                "//li[contains(@id, 'headlessui-listbox-option')][1]",
-                                timeout=5,
-                                description="primera función"
-                            )
+                            pass
+
+                        # Actualizar Sheet con error
+                        if self.sheet:
+                            try:
+                                error_msg = f"ERROR: Función '{funcion}' no válida. Opciones: {', '.join(opciones_disponibles)}"
+                                self.sheet.update_cell(self.current_row, self.get_column_index('Estado'), error_msg)
+                            except:
+                                pass
+
+                        # SKIP esta entrada
+                        self.log(f"  ⏭️  Saltando esta entrada y continuando con la siguiente...")
+                        self.driver.get("https://pos.buenalive.com/events")
+                        time.sleep(2)
+                        return
+
                 else:
                     # Si no hay función especificada, usar la primera
+                    self.log("  Sin función especificada, usando primera disponible")
                     self.wait_and_click(
                         "//li[contains(@id, 'headlessui-listbox-option')][1]",
                         timeout=5,
