@@ -547,51 +547,76 @@ class TicketAutomation:
                             description="primer sector disponible"
                         )
             
-            # PASO 3: Seleccionar tarifa basada en el valor
-            valor = str(row_data.get('Valor', '0')).replace('$', '').replace('.', '').replace(',', '.')
+            # PASO 3: Seleccionar tarifa - usar valor EXACTO del Sheet
+            valor_sheet = str(row_data.get('Valor', '')).strip()
+
+            self.log(f"3. Seleccionando tarifa: {valor_sheet}")
+
             try:
-                valor_float = float(valor)
-            except:
-                valor_float = 0
-            
-            self.log(f"3. Seleccionando tarifa (valor: ${valor_float})")
-            
-            # Click en el combobox de tarifa
-            tarifa_input = self.driver.find_element(By.XPATH,
-                "//input[contains(@id, 'headlessui-combobox-input')]")
-            tarifa_input.click()
-            
-            # Determinar qué tarifa buscar
-            if valor_float > 0:
-                tarifas = ["ENTRADAS GENERALES", "Fase", "General"]
-            else:
-                tarifas = ["Cortesía", "RRPP", "Buena"]
-            
-            tarifa_seleccionada = False
-            for tarifa in tarifas:
-                try:
-                    tarifa_input.clear()
-                    tarifa_input.send_keys(tarifa)
-                    
-                    # Intentar seleccionar la opción que contiene el texto de la tarifa
-                    tarifa_option = self.driver.find_element(By.XPATH,
-                        f"//li[contains(@id, 'headlessui-combobox-option') and contains(text(), '{tarifa}')]")
-                    if self.headless_mode:
-                        self.driver.execute_script("arguments[0].click();", tarifa_option)
-                    else:
-                        tarifa_option.click()
-                    tarifa_seleccionada = True
-                    self.log(f"  Tarifa seleccionada: {tarifa}")
-                    break
-                except:
-                    continue
-            
-            if not tarifa_seleccionada:
-                tarifa_input.click()
-                self.wait_and_click(
-                    "//li[contains(@id, 'headlessui-combobox-option')][1]",
-                    timeout=3
+                # Click en el combobox de tarifa
+                tarifa_input = WebDriverWait(self.driver, 5).until(
+                    EC.element_to_be_clickable((By.XPATH, "//input[contains(@id, 'headlessui-combobox-input')]"))
                 )
+                tarifa_input.click()
+                time.sleep(0.3)
+
+                # Limpiar el campo y escribir el valor EXACTO del Sheet
+                tarifa_input.clear()
+                time.sleep(0.2)
+                tarifa_input.send_keys(valor_sheet)
+                self.log(f"  Valor escrito en combobox: '{valor_sheet}'")
+
+                # Esperar a que aparezcan las opciones filtradas
+                time.sleep(0.5)
+
+                # Hacer click en la PRIMERA opción que aparece
+                try:
+                    primera_opcion = WebDriverWait(self.driver, 3).until(
+                        EC.element_to_be_clickable((By.XPATH, "//li[contains(@id, 'headlessui-combobox-option')][1]"))
+                    )
+
+                    if self.headless_mode:
+                        self.driver.execute_script("arguments[0].click();", primera_opcion)
+                    else:
+                        primera_opcion.click()
+
+                    self.log(f"  ✓ Tarifa seleccionada (primera opción disponible)")
+                    time.sleep(0.3)
+
+                except Exception as e:
+                    self.log(f"  ✗ No se encontraron opciones para tarifa '{valor_sheet}'")
+                    self.log(f"  Error: {e}")
+
+                    # Actualizar Sheet con error
+                    if self.sheet:
+                        try:
+                            error_msg = f"ERROR: Tarifa '{valor_sheet}' no encontrada"
+                            self.sheet.update_cell(self.current_row, self.get_column_index('Estado'), error_msg)
+                        except:
+                            pass
+
+                    self.log(f"  ⏭️  Saltando esta entrada...")
+                    self.driver.get("https://pos.buenalive.com/events")
+                    time.sleep(2)
+                    return
+
+            except Exception as e:
+                self.log(f"  ✗ Error seleccionando tarifa: {e}")
+                import traceback
+                self.log(f"  Detalle: {traceback.format_exc()}")
+
+                # Actualizar Sheet con error
+                if self.sheet:
+                    try:
+                        error_msg = f"ERROR: No se pudo seleccionar tarifa"
+                        self.sheet.update_cell(self.current_row, self.get_column_index('Estado'), error_msg)
+                    except:
+                        pass
+
+                self.log(f"  ⏭️  Saltando esta entrada...")
+                self.driver.get("https://pos.buenalive.com/events")
+                time.sleep(2)
+                return
 
             # PASO 4: Cantidad (siempre 1, ya viene por defecto)
             self.log("4. Cantidad: 1 (default)")
@@ -1042,51 +1067,76 @@ class TicketAutomation:
                             description="primer sector disponible"
                         )
 
-            # PASO 3: Seleccionar tarifa basada en el valor (IDÉNTICO A NOMINADOS)
-            valor = str(row_data.get('Valor', '0')).replace('$', '').replace('.', '').replace(',', '.')
+            # PASO 3: Seleccionar tarifa - usar valor EXACTO del Sheet (IDÉNTICO A NOMINADOS)
+            valor_sheet = str(row_data.get('Valor', '')).strip()
+
+            self.log(f"3. Seleccionando tarifa: {valor_sheet}")
+
             try:
-                valor_float = float(valor)
-            except:
-                valor_float = 0
-
-            self.log(f"3. Seleccionando tarifa (valor: ${valor_float})")
-
-            # Click en el combobox de tarifa
-            tarifa_input = self.driver.find_element(By.XPATH,
-                "//input[contains(@id, 'headlessui-combobox-input')]")
-            tarifa_input.click()
-
-            # Determinar qué tarifa buscar
-            if valor_float > 0:
-                tarifas = ["ENTRADAS GENERALES", "Fase", "General"]
-            else:
-                tarifas = ["Cortesía", "RRPP", "Buena"]
-
-            tarifa_seleccionada = False
-            for tarifa in tarifas:
-                try:
-                    tarifa_input.clear()
-                    tarifa_input.send_keys(tarifa)
-
-                    # Intentar seleccionar la opción que contiene el texto de la tarifa
-                    tarifa_option = self.driver.find_element(By.XPATH,
-                        f"//li[contains(@id, 'headlessui-combobox-option') and contains(text(), '{tarifa}')]")
-                    if self.headless_mode:
-                        self.driver.execute_script("arguments[0].click();", tarifa_option)
-                    else:
-                        tarifa_option.click()
-                    tarifa_seleccionada = True
-                    self.log(f"  Tarifa seleccionada: {tarifa}")
-                    break
-                except:
-                    continue
-
-            if not tarifa_seleccionada:
-                tarifa_input.click()
-                self.wait_and_click(
-                    "//li[contains(@id, 'headlessui-combobox-option')][1]",
-                    timeout=3
+                # Click en el combobox de tarifa
+                tarifa_input = WebDriverWait(self.driver, 5).until(
+                    EC.element_to_be_clickable((By.XPATH, "//input[contains(@id, 'headlessui-combobox-input')]"))
                 )
+                tarifa_input.click()
+                time.sleep(0.3)
+
+                # Limpiar el campo y escribir el valor EXACTO del Sheet
+                tarifa_input.clear()
+                time.sleep(0.2)
+                tarifa_input.send_keys(valor_sheet)
+                self.log(f"  Valor escrito en combobox: '{valor_sheet}'")
+
+                # Esperar a que aparezcan las opciones filtradas
+                time.sleep(0.5)
+
+                # Hacer click en la PRIMERA opción que aparece
+                try:
+                    primera_opcion = WebDriverWait(self.driver, 3).until(
+                        EC.element_to_be_clickable((By.XPATH, "//li[contains(@id, 'headlessui-combobox-option')][1]"))
+                    )
+
+                    if self.headless_mode:
+                        self.driver.execute_script("arguments[0].click();", primera_opcion)
+                    else:
+                        primera_opcion.click()
+
+                    self.log(f"  ✓ Tarifa seleccionada (primera opción disponible)")
+                    time.sleep(0.3)
+
+                except Exception as e:
+                    self.log(f"  ✗ No se encontraron opciones para tarifa '{valor_sheet}'")
+                    self.log(f"  Error: {e}")
+
+                    # Actualizar Sheet con error
+                    if self.sheet:
+                        try:
+                            error_msg = f"ERROR: Tarifa '{valor_sheet}' no encontrada"
+                            self.sheet.update_cell(self.current_row, self.get_column_index('Estado'), error_msg)
+                        except:
+                            pass
+
+                    self.log(f"  ⏭️  Saltando esta entrada...")
+                    self.driver.get("https://pos.buenalive.com/events")
+                    time.sleep(2)
+                    return
+
+            except Exception as e:
+                self.log(f"  ✗ Error seleccionando tarifa: {e}")
+                import traceback
+                self.log(f"  Detalle: {traceback.format_exc()}")
+
+                # Actualizar Sheet con error
+                if self.sheet:
+                    try:
+                        error_msg = f"ERROR: No se pudo seleccionar tarifa"
+                        self.sheet.update_cell(self.current_row, self.get_column_index('Estado'), error_msg)
+                    except:
+                        pass
+
+                self.log(f"  ⏭️  Saltando esta entrada...")
+                self.driver.get("https://pos.buenalive.com/events")
+                time.sleep(2)
+                return
 
             # PASO 4: Cantidad (DIFERENTE - Leer y llenar cantidad)
             cantidad = str(row_data.get('Cantidad', '1'))
