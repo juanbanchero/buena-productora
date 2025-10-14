@@ -636,30 +636,32 @@ class TicketAutomation:
                             time.sleep(0.3)
 
                         else:
-                            # El tipo del Sheet NO existe en el dropdown
-                            self.log(f"  ✗ ADVERTENCIA: '{tipo_documento}' NO está en el dropdown")
-                            self.log(f"  Opciones válidas son: {opciones_disponibles}")
+                            # El tipo del Sheet NO existe en el dropdown - ERROR CRÍTICO
+                            self.log(f"  ✗✗✗ ERROR CRÍTICO: Tipo '{tipo_documento}' NO existe en el dropdown ✗✗✗")
+                            self.log(f"  Opciones válidas del evento: {opciones_disponibles}")
+                            self.log(f"  Tipo en Google Sheet: '{tipo_documento}'")
+                            self.log(f"  ⚠️  NO SE PROCESARÁ esta entrada para evitar emitir documentación ilegal")
 
-                            # Si es 'CI', intentar con 'DNI' (equivalente común)
-                            if tipo_documento.upper() == 'CI' and 'DNI' in opciones_disponibles:
-                                self.log(f"  Mapeando 'CI' → 'DNI'...")
-
-                                tipo_option_xpath = "//li[contains(@id, 'headlessui-listbox-option')]//span[@class='font-normal block truncate' and text()='DNI']"
-                                tipo_option = WebDriverWait(self.driver, 3).until(
-                                    EC.element_to_be_clickable((By.XPATH, tipo_option_xpath))
-                                )
-                                if self.headless_mode:
-                                    self.driver.execute_script("arguments[0].click();", tipo_option)
-                                else:
-                                    tipo_option.click()
-
-                                self.log(f"  ✓ Seleccionado 'DNI' como equivalente de 'CI'")
-                                time.sleep(0.3)
-                            else:
-                                # No hay mapeo: cerrar dropdown y usar lo que esté por defecto
+                            # Cerrar el dropdown
+                            try:
                                 self.driver.execute_script("document.body.click();")
-                                self.log(f"  ⚠ No hay equivalente para '{tipo_documento}', usando valor por defecto del dropdown")
                                 time.sleep(0.3)
+                            except:
+                                pass
+
+                            # Actualizar Sheet con error
+                            if self.sheet:
+                                try:
+                                    error_msg = f"ERROR: Tipo '{tipo_documento}' no válido para este evento. Opciones: {', '.join(opciones_disponibles)}"
+                                    self.sheet.update_cell(self.current_row, self.get_column_index('Estado'), error_msg)
+                                except:
+                                    pass
+
+                            # SKIP esta entrada - volver al dashboard y salir del método
+                            self.log(f"  ⏭️  Saltando esta entrada y continuando con la siguiente...")
+                            self.driver.get("https://pos.buenalive.com/events")
+                            time.sleep(2)
+                            return  # Salir del método sin procesar esta entrada
 
                     except Exception as e:
                         self.log(f"  ✗ Error seleccionando tipo de documento: {str(e)}")
