@@ -552,6 +552,13 @@ class TicketAutomation:
 
             self.log(f"3. Seleccionando tarifa: {valor_sheet}")
 
+            # Extraer la palabra clave para buscar (la primera parte antes del " -")
+            # Ejemplo: "Cortesía - $ 0,00 + $ 0,00" → buscar "Cortesía"
+            buscar_texto = valor_sheet.split(' -')[0].strip() if ' -' in valor_sheet else valor_sheet
+
+            # Detectar si es cortesía (para usar en el paso de selección de pago)
+            es_cortesia = 'cortesía' in buscar_texto.lower() or 'cortesia' in buscar_texto.lower() or '0' in buscar_texto
+
             try:
                 # Click en el combobox de tarifa
                 tarifa_input = WebDriverWait(self.driver, 5).until(
@@ -559,10 +566,6 @@ class TicketAutomation:
                 )
                 tarifa_input.click()
                 time.sleep(0.3)
-
-                # Extraer la palabra clave para buscar (la primera parte antes del " -")
-                # Ejemplo: "Cortesía - $ 0,00 + $ 0,00" → buscar "Cortesía"
-                buscar_texto = valor_sheet.split(' -')[0].strip() if ' -' in valor_sheet else valor_sheet
 
                 # Limpiar el campo y escribir la palabra clave
                 tarifa_input.clear()
@@ -884,8 +887,8 @@ class TicketAutomation:
             except TimeoutException:
                 self.log("⚠ Opciones de pago tardaron en cargar")
 
-            # PASO 14: Seleccionar Cortesía ANTES de pagar (si el valor es 0)
-            if valor_float == 0:
+            # PASO 14: Seleccionar Cortesía ANTES de pagar (si es cortesía)
+            if es_cortesia:
                 self.log("14. Seleccionando Cortesía antes del pago...")
 
                 cortesia_seleccionada = self.wait_and_click(
@@ -1109,6 +1112,13 @@ class TicketAutomation:
 
             self.log(f"3. Seleccionando tarifa: {valor_sheet}")
 
+            # Extraer la palabra clave para buscar (la primera parte antes del " -")
+            # Ejemplo: "Cortesía - $ 0,00 + $ 0,00" → buscar "Cortesía"
+            buscar_texto = valor_sheet.split(' -')[0].strip() if ' -' in valor_sheet else valor_sheet
+
+            # Detectar si es cortesía (para usar en el paso de selección de pago)
+            es_cortesia = 'cortesía' in buscar_texto.lower() or 'cortesia' in buscar_texto.lower() or '0' in buscar_texto
+
             try:
                 # Click en el combobox de tarifa
                 tarifa_input = WebDriverWait(self.driver, 5).until(
@@ -1116,10 +1126,6 @@ class TicketAutomation:
                 )
                 tarifa_input.click()
                 time.sleep(0.3)
-
-                # Extraer la palabra clave para buscar (la primera parte antes del " -")
-                # Ejemplo: "Cortesía - $ 0,00 + $ 0,00" → buscar "Cortesía"
-                buscar_texto = valor_sheet.split(' -')[0].strip() if ' -' in valor_sheet else valor_sheet
 
                 # Limpiar el campo y escribir la palabra clave
                 tarifa_input.clear()
@@ -1312,8 +1318,8 @@ class TicketAutomation:
             except TimeoutException:
                 self.log("⚠ Opciones de pago tardaron en cargar")
 
-            # PASO 13: Seleccionar Cortesía ANTES de pagar (si el valor es 0)
-            if valor_float == 0:
+            # PASO 13: Seleccionar Cortesía ANTES de pagar (si es cortesía)
+            if es_cortesia:
                 self.log("13. Seleccionando Cortesía antes del pago...")
 
                 cortesia_seleccionada = self.wait_and_click(
