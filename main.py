@@ -97,13 +97,24 @@ class TicketAutomation:
     def setup_driver(self):
         """Configura el driver de Chrome con optimizaciones de performance"""
         chrome_options = Options()
+
+        # Opciones críticas de compatibilidad (especialmente para Mac)
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
         chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--disable-software-rasterizer')
+
+        # Prevenir crashes en Mac
+        chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+        chrome_options.add_argument('--disable-infobars')
+        chrome_options.add_argument('--enable-unsafe-swiftshader')
+
+        # User agent para evitar detección de bot
+        chrome_options.add_argument('--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
 
         # Configuración headless mode
         if self.headless_mode:
-            chrome_options.add_argument('--headless')
+            chrome_options.add_argument('--headless=new')  # Usar nuevo headless mode
             chrome_options.add_argument('--window-size=1920,1080')
 
         # Optimizaciones de performance para procesamiento masivo
@@ -119,10 +130,13 @@ class TicketAutomation:
         chrome_options.add_argument('--no-first-run')
         chrome_options.add_argument('--disable-ipc-flooding-protection')
         chrome_options.add_argument('--memory-pressure-off')
-        
+
+        # Configuraciones experimentales para estabilidad
+        chrome_options.add_experimental_option('excludeSwitches', ['enable-logging', 'enable-automation'])
+        chrome_options.add_experimental_option('useAutomationExtension', False)
+
         try:
             self.log("Configurando ChromeDriver...")
-            service = None
 
             # Windows-specific: creation_flags to prevent ChromeDriver console window
             # 0x08000000 = CREATE_NO_WINDOW flag for subprocess creation
@@ -130,30 +144,22 @@ class TicketAutomation:
             if sys.platform == 'win32':
                 service_kwargs['popen_kw'] = {"creation_flags": 0x08000000}
 
-            # Estrategia 1: Intentar usar ChromeDriver empaquetado (Windows .exe)
-            if getattr(sys, 'frozen', False):
-                # Running as compiled executable
-                bundle_dir = sys._MEIPASS
-                chromedriver_path = os.path.join(bundle_dir, 'chromedriver.exe')
-
-                if os.path.exists(chromedriver_path):
-                    self.log(f"Usando ChromeDriver empaquetado: {chromedriver_path}")
-                    service = Service(chromedriver_path, **service_kwargs)
-                else:
-                    self.log("ChromeDriver empaquetado no encontrado, usando webdriver-manager...")
-
-            # Estrategia 2: Usar webdriver-manager (desarrollo o fallback)
-            if service is None:
-                self.log("Descargando ChromeDriver automáticamente...")
-                try:
-                    service = Service(ChromeDriverManager().install(), **service_kwargs)
-                except Exception as wdm_error:
-                    self.log(f"Error con webdriver-manager: {wdm_error}")
-                    # Último intento: chromedriver en PATH
-                    self.log("Intentando usar chromedriver desde PATH...")
-                    service = Service(**service_kwargs)
+            # SIEMPRE usar webdriver-manager para descargar la versión correcta
+            # Esto evita problemas de mismatch entre ChromeDriver y Chrome
+            self.log("Detectando versión de Chrome instalada y descargando ChromeDriver compatible...")
+            try:
+                # webdriver-manager descarga automáticamente la versión correcta
+                driver_path = ChromeDriverManager().install()
+                self.log(f"✓ ChromeDriver compatible descargado: {driver_path}")
+                service = Service(driver_path, **service_kwargs)
+            except Exception as wdm_error:
+                self.log(f"⚠ Error con webdriver-manager: {wdm_error}")
+                # Fallback: intentar usar chromedriver en PATH
+                self.log("Intentando usar chromedriver desde PATH del sistema...")
+                service = Service(**service_kwargs)
 
             # Crear driver con el servicio configurado
+            self.log("Iniciando Chrome con Selenium...")
             self.driver = webdriver.Chrome(service=service, options=chrome_options)
             self.log("✓ ChromeDriver configurado correctamente")
 
