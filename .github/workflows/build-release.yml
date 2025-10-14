@@ -87,7 +87,8 @@ jobs:
 
     - name: Create credentials.json from secret
       run: |
-        echo '${{ secrets.GOOGLE_CREDENTIALS }}' | Out-File -FilePath credentials.json -Encoding utf8NoBOM
+        $content = '${{ secrets.GOOGLE_CREDENTIALS }}'
+        [System.IO.File]::WriteAllText("$PWD\credentials.json", $content, [System.Text.UTF8Encoding]::new($false))
       shell: powershell
 
     - name: Build Windows app
