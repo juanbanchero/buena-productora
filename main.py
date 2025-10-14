@@ -547,7 +547,7 @@ class TicketAutomation:
                             description="primer sector disponible"
                         )
             
-            # PASO 3: Seleccionar tarifa - usar valor EXACTO del Sheet
+            # PASO 3: Seleccionar tarifa - usar valor del Sheet
             valor_sheet = str(row_data.get('Valor', '')).strip()
 
             self.log(f"3. Seleccionando tarifa: {valor_sheet}")
@@ -560,16 +560,20 @@ class TicketAutomation:
                 tarifa_input.click()
                 time.sleep(0.3)
 
-                # Limpiar el campo y escribir el valor EXACTO del Sheet
+                # Extraer la palabra clave para buscar (la primera parte antes del " -")
+                # Ejemplo: "Cortesía - $ 0,00 + $ 0,00" → buscar "Cortesía"
+                buscar_texto = valor_sheet.split(' -')[0].strip() if ' -' in valor_sheet else valor_sheet
+
+                # Limpiar el campo y escribir la palabra clave
                 tarifa_input.clear()
                 time.sleep(0.2)
-                tarifa_input.send_keys(valor_sheet)
-                self.log(f"  Valor escrito en combobox: '{valor_sheet}'")
+                tarifa_input.send_keys(buscar_texto)
+                self.log(f"  Buscando en combobox: '{buscar_texto}'")
 
                 # Esperar a que aparezcan las opciones filtradas
                 time.sleep(0.5)
 
-                # Hacer click en la PRIMERA opción que aparece
+                # Hacer click en la PRIMERA opción que aparezca (ya está filtrada por la búsqueda)
                 try:
                     primera_opcion = WebDriverWait(self.driver, 3).until(
                         EC.element_to_be_clickable((By.XPATH, "//li[contains(@id, 'headlessui-combobox-option')][1]"))
@@ -580,17 +584,18 @@ class TicketAutomation:
                     else:
                         primera_opcion.click()
 
-                    self.log(f"  ✓ Tarifa seleccionada (primera opción disponible)")
+                    self.log(f"  ✓ Tarifa seleccionada (búsqueda: '{buscar_texto}')")
                     time.sleep(0.3)
 
                 except Exception as e:
-                    self.log(f"  ✗ No se encontraron opciones para tarifa '{valor_sheet}'")
+                    # No se encontraron opciones
+                    self.log(f"  ✗ No se encontraron opciones para búsqueda '{buscar_texto}'")
                     self.log(f"  Error: {e}")
 
                     # Actualizar Sheet con error
                     if self.sheet:
                         try:
-                            error_msg = f"ERROR: Tarifa '{valor_sheet}' no encontrada"
+                            error_msg = f"ERROR: Tarifa '{buscar_texto}' no encontrada"
                             self.sheet.update_cell(self.current_row, self.get_column_index('Estado'), error_msg)
                         except:
                             pass
@@ -662,19 +667,37 @@ class TicketAutomation:
                 # PASO 6b: Seleccionar tipo de documento
                 self.log(f"6b. Seleccionando tipo de documento del Sheet: {tipo_documento}")
 
-                # Encontrar todos los listbox buttons
-                tipo_doc_buttons = self.driver.find_elements(By.XPATH,
-                    "//button[contains(@id, 'headlessui-listbox-button')]")
+                # Buscar el listbox button que contiene un tipo de documento (DNI, CI, Pasaporte, etc.)
+                # Buscar por contenido que tenga palabras comunes de tipos de documento
+                tipo_doc_button = None
+                try:
+                    # Buscar botón que contenga texto relacionado a documentos
+                    posibles_tipos = ['DNI', 'CI', 'Pasaporte', 'Otro', 'Documento']
+                    for tipo in posibles_tipos:
+                        try:
+                            tipo_doc_button = self.driver.find_element(By.XPATH,
+                                f"//button[contains(@id, 'headlessui-listbox-button')]//span[contains(text(), '{tipo}')]/..")
+                            self.log(f"  ✓ Encontrado listbox de tipo de documento con texto '{tipo}'")
+                            break
+                        except:
+                            continue
 
-                self.log(f"  Encontrados {len(tipo_doc_buttons)} listbox buttons en total")
+                    if not tipo_doc_button:
+                        self.log(f"  ⚠ No se encontró listbox de tipo de documento por contenido, intentando con el último button...")
+                        # Fallback: usar el último listbox button encontrado
+                        tipo_doc_buttons = self.driver.find_elements(By.XPATH,
+                            "//button[contains(@id, 'headlessui-listbox-button')]")
+                        if len(tipo_doc_buttons) > 0:
+                            tipo_doc_button = tipo_doc_buttons[-1]  # Último button
+                            self.log(f"  Usando último listbox button (total: {len(tipo_doc_buttons)})")
 
-                if len(tipo_doc_buttons) >= 3:
-                    # El tercer listbox es el de tipo de documento
-                    tipo_doc_button = tipo_doc_buttons[2]
+                except Exception as e:
+                    self.log(f"  ✗ Error buscando listbox de tipo de documento: {e}")
 
+                if tipo_doc_button:
                     try:
                         # Hacer click en el botón para abrir el dropdown
-                        self.log(f"  Abriendo dropdown de tipo de documento (botón índice 2)...")
+                        self.log(f"  Abriendo dropdown de tipo de documento...")
                         if self.headless_mode:
                             self.driver.execute_script("arguments[0].click();", tipo_doc_button)
                         else:
@@ -753,7 +776,21 @@ class TicketAutomation:
                         self.log(f"  ⚠ Continuando con valor por defecto")
 
                 else:
-                    self.log(f"  ⚠ No se encontró selector de tipo de documento (esperaba 3+ listboxes, encontrados: {len(tipo_doc_buttons)})")
+                    # No se encontró el listbox de tipo de documento - ERROR
+                    self.log(f"  ✗✗✗ ERROR: No se encontró selector de tipo de documento ✗✗✗")
+
+                    # Actualizar Sheet con error
+                    if self.sheet:
+                        try:
+                            error_msg = f"ERROR: No se encontró selector de tipo de documento"
+                            self.sheet.update_cell(self.current_row, self.get_column_index('Estado'), error_msg)
+                        except:
+                            pass
+
+                    self.log(f"  ⏭️  Saltando esta entrada...")
+                    self.driver.get("https://pos.buenalive.com/events")
+                    time.sleep(2)
+                    return
 
                 self.wait_and_send_keys("holders.0.firstName", nombre, description="nombre")
                 self.wait_and_send_keys("holders.0.lastName", apellido, description="apellido")
@@ -1067,7 +1104,7 @@ class TicketAutomation:
                             description="primer sector disponible"
                         )
 
-            # PASO 3: Seleccionar tarifa - usar valor EXACTO del Sheet (IDÉNTICO A NOMINADOS)
+            # PASO 3: Seleccionar tarifa - usar valor del Sheet (IDÉNTICO A NOMINADOS)
             valor_sheet = str(row_data.get('Valor', '')).strip()
 
             self.log(f"3. Seleccionando tarifa: {valor_sheet}")
@@ -1080,16 +1117,20 @@ class TicketAutomation:
                 tarifa_input.click()
                 time.sleep(0.3)
 
-                # Limpiar el campo y escribir el valor EXACTO del Sheet
+                # Extraer la palabra clave para buscar (la primera parte antes del " -")
+                # Ejemplo: "Cortesía - $ 0,00 + $ 0,00" → buscar "Cortesía"
+                buscar_texto = valor_sheet.split(' -')[0].strip() if ' -' in valor_sheet else valor_sheet
+
+                # Limpiar el campo y escribir la palabra clave
                 tarifa_input.clear()
                 time.sleep(0.2)
-                tarifa_input.send_keys(valor_sheet)
-                self.log(f"  Valor escrito en combobox: '{valor_sheet}'")
+                tarifa_input.send_keys(buscar_texto)
+                self.log(f"  Buscando en combobox: '{buscar_texto}'")
 
                 # Esperar a que aparezcan las opciones filtradas
                 time.sleep(0.5)
 
-                # Hacer click en la PRIMERA opción que aparece
+                # Hacer click en la PRIMERA opción que aparezca (ya está filtrada por la búsqueda)
                 try:
                     primera_opcion = WebDriverWait(self.driver, 3).until(
                         EC.element_to_be_clickable((By.XPATH, "//li[contains(@id, 'headlessui-combobox-option')][1]"))
@@ -1100,17 +1141,18 @@ class TicketAutomation:
                     else:
                         primera_opcion.click()
 
-                    self.log(f"  ✓ Tarifa seleccionada (primera opción disponible)")
+                    self.log(f"  ✓ Tarifa seleccionada (búsqueda: '{buscar_texto}')")
                     time.sleep(0.3)
 
                 except Exception as e:
-                    self.log(f"  ✗ No se encontraron opciones para tarifa '{valor_sheet}'")
+                    # No se encontraron opciones
+                    self.log(f"  ✗ No se encontraron opciones para búsqueda '{buscar_texto}'")
                     self.log(f"  Error: {e}")
 
                     # Actualizar Sheet con error
                     if self.sheet:
                         try:
-                            error_msg = f"ERROR: Tarifa '{valor_sheet}' no encontrada"
+                            error_msg = f"ERROR: Tarifa '{buscar_texto}' no encontrada"
                             self.sheet.update_cell(self.current_row, self.get_column_index('Estado'), error_msg)
                         except:
                             pass
