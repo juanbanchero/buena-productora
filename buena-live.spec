@@ -38,12 +38,11 @@ else:
 
 # Define binaries to include (platform-specific executables)
 binaries = []
-# Include ChromeDriver on Windows if available
-if sys.platform == 'win32':
-    chromedriver_path = app_dir / 'chromedriver.exe'
-    if chromedriver_path.exists():
-        binaries.append((str(chromedriver_path), '.'))
-        print(f"Including ChromeDriver: {chromedriver_path}")
+
+# NOTE: ChromeDriver is NOT included in the bundle anymore
+# webdriver-manager will download the correct version at runtime
+# This prevents version mismatch issues (e.g., ChromeDriver 140 vs Chrome 136)
+print("ChromeDriver will be downloaded automatically at runtime via webdriver-manager")
 
 # Hidden imports (modules not automatically detected by PyInstaller)
 # Comprehensive list to prevent runtime import errors
