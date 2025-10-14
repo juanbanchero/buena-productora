@@ -43,6 +43,7 @@ import os
 from datetime import datetime
 import sys
 import re
+import json
 from credential_manager import CredentialManager
 from version import __version__
 import updater
@@ -295,8 +296,12 @@ class TicketAutomation:
             if not os.path.exists(self.credentials_file):
                 self.log("✗ No se encuentra el archivo credentials.json de Google")
                 return None
-                
-            creds = Credentials.from_service_account_file(self.credentials_file, scopes=scope)
+
+            # Leer credentials.json con utf-8-sig para manejar BOM en Windows
+            with open(self.credentials_file, 'r', encoding='utf-8-sig') as f:
+                creds_data = json.load(f)
+
+            creds = Credentials.from_service_account_info(creds_data, scopes=scope)
             client = gspread.authorize(creds)
             
             if '/d/' in sheet_url:
