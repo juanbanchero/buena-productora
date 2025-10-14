@@ -43,6 +43,7 @@ import os
 from datetime import datetime
 import sys
 import re
+import json
 from credential_manager import CredentialManager
 from version import __version__
 import updater
