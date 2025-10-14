@@ -151,9 +151,26 @@ class TicketAutomation:
                 # webdriver-manager descarga automáticamente la versión correcta
                 driver_path = ChromeDriverManager().install()
                 self.log(f"✓ ChromeDriver compatible descargado: {driver_path}")
+
+                # Mac: dar permisos de ejecución al ChromeDriver
+                if sys.platform == 'darwin':
+                    import stat
+                    import subprocess as sp
+                    try:
+                        # Dar permisos de ejecución
+                        os.chmod(driver_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+                        # Remover quarantine attribute de macOS
+                        sp.run(['xattr', '-d', 'com.apple.quarantine', driver_path],
+                               capture_output=True, check=False)
+                        self.log("✓ Permisos de ejecución configurados en Mac")
+                    except Exception as perm_error:
+                        self.log(f"⚠ No se pudieron configurar permisos (puede funcionar igual): {perm_error}")
+
                 service = Service(driver_path, **service_kwargs)
             except Exception as wdm_error:
                 self.log(f"⚠ Error con webdriver-manager: {wdm_error}")
+                import traceback
+                self.log(f"Detalle del error: {traceback.format_exc()}")
                 # Fallback: intentar usar chromedriver en PATH
                 self.log("Intentando usar chromedriver desde PATH del sistema...")
                 service = Service(**service_kwargs)
@@ -179,40 +196,61 @@ class TicketAutomation:
         """Realiza el login en el sistema"""
         try:
             self.log("Iniciando login...")
+            self.log("Navegando a https://pos.buenalive.com/ ...")
             self.driver.get("https://pos.buenalive.com/")
-            
+            self.log("✓ Página cargada correctamente")
+
             # Esperar y completar email
+            self.log("Esperando campo de email...")
             email_input = WebDriverWait(self.driver, 10).until(
                 EC.presence_of_element_located((By.ID, "username"))
             )
+            self.log("✓ Campo de email encontrado")
             email_input.clear()
             email_input.send_keys(email)
-            
+
             # Completar password
+            self.log("Completando password...")
             password_input = self.driver.find_element(By.ID, "password")
             password_input.clear()
             password_input.send_keys(password)
-            
+
             # Click en submit
+            self.log("Haciendo click en 'Ingresar'...")
             submit_button = self.driver.find_element(By.XPATH, "//button[@type='submit' and contains(., 'Ingresar')]")
             submit_button.click()
-            
+
             # Seleccionar Backoffice
+            self.log("Esperando opción Backoffice...")
             backoffice_button = WebDriverWait(self.driver, 10).until(
                 EC.element_to_be_clickable((By.XPATH, "//h2[contains(text(),'Backoffice')]"))
             )
+            self.log("✓ Backoffice encontrado, haciendo click...")
             backoffice_button.click()
 
             # Verificar que el login fue exitoso esperando elemento del dashboard
+            self.log("Esperando dashboard...")
             WebDriverWait(self.driver, 10).until(
                 EC.presence_of_element_located((By.XPATH, "//li[contains(@class, 'block overflow-hidden rounded bg-white')] | //div[contains(@class, 'grid')] | //main"))
             )
 
             self.log("✓ Login exitoso")
             return True
-            
+
         except Exception as e:
             self.log(f"✗ Error en login: {str(e)}")
+            # Agregar traceback completo para debugging
+            import traceback
+            self.log(f"Traceback completo: {traceback.format_exc()}")
+
+            # Intentar capturar screenshot para debugging
+            try:
+                screenshot_path = os.path.join(os.path.expanduser("~"), "buena-live-error.png")
+                self.driver.save_screenshot(screenshot_path)
+                self.log(f"Screenshot guardado en: {screenshot_path}")
+            except:
+                pass
+
             return False
     
     def get_available_events(self):
