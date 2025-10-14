@@ -25,6 +25,12 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
+    - name: Update version from tag
+      run: |
+        python build_scripts/update_version.py
+        echo "Updated to version:"
+        grep "__version__" version.py
+
     - name: Create credentials.json from secret
       run: |
         echo '${{ secrets.GOOGLE_CREDENTIALS }}' > credentials.json
@@ -60,6 +66,12 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+
+    - name: Update version from tag
+      run: |
+        python build_scripts/update_version.py
+        echo "Updated to version:"
+        grep "__version__" version.py
 
     - name: Install NSIS
       run: |

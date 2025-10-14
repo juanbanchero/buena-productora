@@ -25,9 +25,16 @@ app_dir = Path(SPECPATH)
 
 # Define data files to include (non-Python files needed by app)
 datas = [
-    (str(app_dir / 'credentials.json'), '.'),  # Google Sheets credentials
     (str(app_dir / 'version.py'), '.'),         # Version information
 ]
+
+# Add credentials.json if it exists (optional for development builds)
+credentials_file = app_dir / 'credentials.json'
+if credentials_file.exists():
+    datas.append((str(credentials_file), '.'))
+    print(f"Including credentials.json: {credentials_file}")
+else:
+    print("WARNING: credentials.json not found - app will need it at runtime")
 
 # Define binaries to include (platform-specific executables)
 binaries = []
@@ -57,6 +64,12 @@ hiddenimports = [
     'google.auth.crypt',
     'google.auth.crypt._python_rsa',
     'google.oauth2.credentials',
+    'google_auth_oauthlib',
+    'google_auth_oauthlib.flow',
+    'google_auth_oauthlib.interactive',
+    'oauthlib',
+    'oauthlib.oauth2',
+    'requests_oauthlib',
 
     # Selenium WebDriver
     'selenium',
@@ -81,6 +94,7 @@ hiddenimports = [
 
     # HTTP/HTTPS Networking
     'packaging',
+    'httplib2',
     'requests',
     'requests.adapters',
     'requests.auth',
@@ -118,6 +132,33 @@ hiddenimports = [
     'importlib.metadata',
     'webbrowser',        # Required by updater.py
     'logging',           # Required by multiple libraries
+
+    # WSGI modules (CRITICAL - required by google-auth-oauthlib OAuth flow)
+    'wsgiref',
+    'wsgiref.simple_server',
+    'wsgiref.util',
+    'wsgiref.headers',
+    'http.server',       # Used by wsgiref.simple_server
+
+    # Additional stdlib modules for OAuth and HTTP
+    'email',             # Required by httplib2 and http clients
+    'email.message',
+    'email.parser',
+    'json',              # Required by OAuth and API clients
+    'base64',            # Required for authentication encoding
+    'hashlib',           # Required for cryptographic operations
+
+    # Core networking and parsing modules
+    'socket',            # Core networking
+    'ssl',               # HTTPS support
+    'html',              # HTML parsing (Selenium)
+    'html.parser',
+    'xml',               # XML parsing (httplib2, gspread)
+    'xml.etree',
+    'xml.etree.ElementTree',
+    'urllib',            # URL handling
+    'urllib.parse',
+    'urllib.request',
 ]
 
 # Exclude unnecessary modules to reduce size
@@ -131,7 +172,9 @@ excludes = [
     'pdb', 'pdb++', 'ipdb', 'doctest', 'pydoc',
 
     # Web servers (not needed - we're a client)
-    'http.server', 'wsgiref', 'bottle', 'flask', 'django',
+    # NOTE: wsgiref is REQUIRED by google-auth-oauthlib for OAuth flow
+    # NOTE: http.server may be used by wsgiref
+    'bottle', 'flask', 'django',
 
     # Unused networking protocols
     'ftplib', 'imaplib', 'poplib', 'smtplib', 'telnetlib',
