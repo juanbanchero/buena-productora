@@ -653,11 +653,11 @@ class TicketAutomation:
                                 except:
                                     pass
 
-                            # SKIP esta entrada - volver al dashboard y continuar con la siguiente
+                            # SKIP esta entrada - volver al dashboard y salir del método
                             self.log(f"  ⏭️  Saltando esta entrada y continuando con la siguiente...")
                             self.driver.get("https://pos.buenalive.com/events")
                             time.sleep(2)
-                            continue  # Volver al inicio del loop para procesar la siguiente fila
+                            return  # Salir del método sin procesar esta entrada
 
                     except Exception as e:
                         self.log(f"  ✗ Error seleccionando tipo de documento: {str(e)}")
