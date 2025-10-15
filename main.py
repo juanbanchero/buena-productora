@@ -856,7 +856,7 @@ class TicketAutomation:
                 # PASO 12: Omitir (si aparece nuevamente)
                 self.log("12. Buscando segundo botón Omitir...")
                 self.wait_and_click(
-                    "//button[contains(., 'Omitir')]",
+                    "//div[contains(@class, 'border-t')]//button[@type='button' and contains(., 'Omitir')]",
                     timeout=5,
                     description="omitir pequeño"
                 )
@@ -1290,7 +1290,7 @@ class TicketAutomation:
                 # PASO 11: Omitir (si aparece nuevamente)
                 self.log("11. Buscando segundo botón Omitir...")
                 self.wait_and_click(
-                    "//button[contains(., 'Omitir')]",
+                    "//div[contains(@class, 'border-t')]//button[@type='button' and contains(., 'Omitir')]",
                     timeout=5,
                     description="omitir pequeño"
                 )
