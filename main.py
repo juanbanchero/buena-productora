@@ -810,7 +810,7 @@ class TicketAutomation:
             # PASO 8: Omitir (si aparece)
             self.log("8. Buscando botón Omitir...")
             self.wait_and_click(
-                "//button[@type='submit' and contains(., 'Omitir')]",
+                "//button[contains(., 'Omitir')]",
                 timeout=3,
                 description="omitir"
             )
@@ -850,11 +850,14 @@ class TicketAutomation:
                         description="botón Continuar alternativo"
                     )
 
+                # Esperar a que cargue la siguiente sección
+                time.sleep(1)
+
                 # PASO 12: Omitir (si aparece nuevamente)
                 self.log("12. Buscando segundo botón Omitir...")
                 self.wait_and_click(
-                    "//button[contains(@class, 'text-xs') and contains(., 'Omitir')]",
-                    timeout=3,
+                    "//button[contains(., 'Omitir')]",
+                    timeout=5,
                     description="omitir pequeño"
                 )
             
@@ -1240,7 +1243,7 @@ class TicketAutomation:
             # PASO 7: Omitir (si aparece)
             self.log("7. Buscando botón Omitir...")
             self.wait_and_click(
-                "//button[@type='submit' and contains(., 'Omitir')]",
+                "//button[contains(., 'Omitir')]",
                 timeout=3,
                 description="omitir"
             )
@@ -1281,11 +1284,14 @@ class TicketAutomation:
                         description="botón Continuar alternativo"
                     )
 
+                # Esperar a que cargue la siguiente sección
+                time.sleep(1)
+
                 # PASO 11: Omitir (si aparece nuevamente)
                 self.log("11. Buscando segundo botón Omitir...")
                 self.wait_and_click(
-                    "//button[contains(@class, 'text-xs') and contains(., 'Omitir')]",
-                    timeout=3,
+                    "//button[contains(., 'Omitir')]",
+                    timeout=5,
                     description="omitir pequeño"
                 )
 
