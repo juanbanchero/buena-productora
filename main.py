@@ -145,36 +145,66 @@ class TicketAutomation:
             if sys.platform == 'win32':
                 service_kwargs['popen_kw'] = {"creation_flags": 0x08000000}
 
-            # SIEMPRE usar webdriver-manager para descargar la versión correcta
-            # Esto evita problemas de mismatch entre ChromeDriver y Chrome
-            self.log("Detectando versión de Chrome instalada y descargando ChromeDriver compatible...")
+            # Mac: Intentar usar ChromeDriver de Homebrew primero (evita problemas de firma)
+            driver_path = None
+            if sys.platform == 'darwin':
+                import subprocess as sp
+                try:
+                    # Verificar si chromedriver está instalado vía Homebrew
+                    result = sp.run(['which', 'chromedriver'], capture_output=True, text=True, check=False)
+                    if result.returncode == 0 and result.stdout.strip():
+                        homebrew_path = result.stdout.strip()
+                        self.log(f"✓ ChromeDriver encontrado en Homebrew: {homebrew_path}")
+                        driver_path = homebrew_path
+                    else:
+                        self.log("ChromeDriver no encontrado en Homebrew")
+                        self.log("Para instalarlo: brew install --cask chromedriver")
+                except Exception as e:
+                    self.log(f"No se pudo verificar Homebrew: {e}")
+
+            # Si no se encontró en Homebrew, usar webdriver-manager
+            if not driver_path:
+                self.log("Detectando versión de Chrome y descargando ChromeDriver compatible...")
+                try:
+                    # webdriver-manager descarga automáticamente la versión correcta
+                    driver_path = ChromeDriverManager().install()
+                    self.log(f"✓ ChromeDriver descargado: {driver_path}")
+
+                    # Mac: dar permisos de ejecución
+                    if sys.platform == 'darwin':
+                        import stat
+                        import subprocess as sp
+                        try:
+                            driver_dir = os.path.dirname(driver_path)
+
+                            # Remover quarantine recursivamente
+                            sp.run(['xattr', '-r', '-d', 'com.apple.quarantine', driver_dir],
+                                   capture_output=True, check=False)
+
+                            # Dar permisos de ejecución
+                            os.chmod(driver_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+
+                            self.log("✓ Permisos configurados")
+                        except Exception as perm_error:
+                            self.log(f"⚠ Error configurando permisos: {perm_error}")
+
+                except Exception as wdm_error:
+                    self.log(f"⚠ Error con webdriver-manager: {wdm_error}")
+                    import traceback
+                    self.log(f"Detalle: {traceback.format_exc()}")
+                    driver_path = None
+
+            # Crear servicio con el driver encontrado
             try:
-                # webdriver-manager descarga automáticamente la versión correcta
-                driver_path = ChromeDriverManager().install()
-                self.log(f"✓ ChromeDriver compatible descargado: {driver_path}")
-
-                # Mac: dar permisos de ejecución al ChromeDriver
-                if sys.platform == 'darwin':
-                    import stat
-                    import subprocess as sp
-                    try:
-                        # Dar permisos de ejecución
-                        os.chmod(driver_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
-                        # Remover quarantine attribute de macOS
-                        sp.run(['xattr', '-d', 'com.apple.quarantine', driver_path],
-                               capture_output=True, check=False)
-                        self.log("✓ Permisos de ejecución configurados en Mac")
-                    except Exception as perm_error:
-                        self.log(f"⚠ No se pudieron configurar permisos (puede funcionar igual): {perm_error}")
-
-                service = Service(driver_path, **service_kwargs)
-            except Exception as wdm_error:
-                self.log(f"⚠ Error con webdriver-manager: {wdm_error}")
-                import traceback
-                self.log(f"Detalle del error: {traceback.format_exc()}")
-                # Fallback: intentar usar chromedriver en PATH
-                self.log("Intentando usar chromedriver desde PATH del sistema...")
-                service = Service(**service_kwargs)
+                if driver_path:
+                    service = Service(driver_path, **service_kwargs)
+                else:
+                    # Último intento: usar chromedriver en PATH
+                    self.log("Intentando usar chromedriver desde PATH del sistema...")
+                    service = Service(**service_kwargs)
+            except Exception as service_error:
+                self.log(f"✗ Error creando servicio: {service_error}")
+                raise
 
             # Crear driver con el servicio configurado
             self.log("Iniciando Chrome con Selenium...")
