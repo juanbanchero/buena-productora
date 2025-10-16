@@ -30,6 +30,7 @@ from tkinter import ttk, messagebox, scrolledtext
 import threading
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
@@ -1246,20 +1247,43 @@ class TicketAutomation:
 
             # PASO 4: Cantidad (DIFERENTE - Leer y llenar cantidad)
             cantidad = str(row_data.get('Cantidad', '1'))
-            self.log(f"4. Ingresando cantidad: {cantidad}")
+            self.log(f"4. Ingresando cantidad desde Sheet: {cantidad}")
 
-            # Buscar input de cantidad por diferentes selectores
-            cantidad_llenada = self.wait_and_send_keys("quantity", cantidad, timeout=3, description="cantidad")
+            # Buscar campo de cantidad con ID correcto: items.0.quantity
+            cantidad_llenada = False
+            try:
+                # Buscar el campo con el ID correcto
+                cantidad_input = WebDriverWait(self.driver, 5).until(
+                    EC.presence_of_element_located((By.ID, "items.0.quantity"))
+                )
+
+                # Verificar valor inicial
+                valor_inicial = cantidad_input.get_attribute('value')
+                self.log(f"  Valor inicial en campo: '{valor_inicial}'")
+
+                # Usar JavaScript para establecer el valor directamente (más confiable)
+                self.driver.execute_script(f"arguments[0].value = '{cantidad}';", cantidad_input)
+                # Disparar eventos para que el framework detecte el cambio
+                self.driver.execute_script("arguments[0].dispatchEvent(new Event('input', { bubbles: true }));", cantidad_input)
+                self.driver.execute_script("arguments[0].dispatchEvent(new Event('change', { bubbles: true }));", cantidad_input)
+                time.sleep(0.2)
+
+                # Verificar que el valor se estableció correctamente
+                valor_actual = cantidad_input.get_attribute('value')
+                self.log(f"  Valor establecido: '{valor_actual}' (esperado: '{cantidad}')")
+
+                if valor_actual == cantidad:
+                    self.log(f"  ✓ Cantidad ingresada correctamente: {cantidad}")
+                    cantidad_llenada = True
+                else:
+                    self.log(f"  ✗ Error: No se pudo establecer cantidad correcta (actual: {valor_actual})")
+
+            except Exception as e:
+                self.log(f"  ✗ Error: No se encontró el campo de cantidad - {str(e)}")
 
             if not cantidad_llenada:
-                # Intentar con XPath si el selector por ID no funciona
-                try:
-                    cantidad_input = self.driver.find_element(By.XPATH, "//input[@type='number']")
-                    cantidad_input.clear()
-                    cantidad_input.send_keys(cantidad)
-                    self.log(f"  ✓ Cantidad ingresada: {cantidad}")
-                except:
-                    self.log(f"  ⚠ No se pudo ingresar cantidad, usando valor por defecto")
+                self.log(f"  ⚠ ADVERTENCIA: No se pudo establecer la cantidad correcta")
+                self.log(f"  ⚠ Se usará el valor por defecto del sistema")
 
             # PASO 5: Click en CONTINUAR (IDÉNTICO A NOMINADOS)
             self.log("5. Haciendo click en Continuar...")
