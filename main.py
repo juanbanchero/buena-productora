@@ -145,53 +145,73 @@ class TicketAutomation:
             if sys.platform == 'win32':
                 service_kwargs['popen_kw'] = {"creation_flags": 0x08000000}
 
-            # Mac: Intentar usar ChromeDriver de Homebrew primero (evita problemas de firma)
+            # Mac: Solución para el error de código -9 (macOS bloqueando ChromeDriver)
             driver_path = None
             if sys.platform == 'darwin':
                 import subprocess as sp
+                import shutil
+
+                # SOLUCIÓN 1: Intentar usar ChromeDriver de Homebrew (recomendado)
                 try:
-                    # Verificar si chromedriver está instalado vía Homebrew
                     result = sp.run(['which', 'chromedriver'], capture_output=True, text=True, check=False)
                     if result.returncode == 0 and result.stdout.strip():
                         homebrew_path = result.stdout.strip()
                         self.log(f"✓ ChromeDriver encontrado en Homebrew: {homebrew_path}")
                         driver_path = homebrew_path
                     else:
-                        self.log("ChromeDriver no encontrado en Homebrew")
-                        self.log("Para instalarlo: brew install --cask chromedriver")
+                        self.log("⚠ ChromeDriver no está instalado vía Homebrew")
+                        self.log("SOLUCIÓN RECOMENDADA:")
+                        self.log("  1. Instalar: brew install --cask chromedriver")
+                        self.log("  2. Permitir ejecución: xattr -d com.apple.quarantine $(which chromedriver)")
                 except Exception as e:
                     self.log(f"No se pudo verificar Homebrew: {e}")
 
+                # SOLUCIÓN 2: Si no está en Homebrew, eliminar cache corrupto de webdriver-manager
+                if not driver_path:
+                    wdm_cache = os.path.expanduser("~/.wdm")
+                    if os.path.exists(wdm_cache):
+                        self.log("Eliminando cache corrupto de webdriver-manager...")
+                        try:
+                            shutil.rmtree(wdm_cache)
+                            self.log("✓ Cache eliminado")
+                        except Exception as e:
+                            self.log(f"⚠ No se pudo eliminar cache: {e}")
+
             # Si no se encontró en Homebrew, usar webdriver-manager
             if not driver_path:
-                self.log("Detectando versión de Chrome y descargando ChromeDriver compatible...")
+                self.log("Descargando ChromeDriver compatible con webdriver-manager...")
                 try:
-                    # webdriver-manager descarga automáticamente la versión correcta
                     driver_path = ChromeDriverManager().install()
                     self.log(f"✓ ChromeDriver descargado: {driver_path}")
 
-                    # Mac: dar permisos de ejecución
+                    # Mac: Intentar remover cuarentena agresivamente
                     if sys.platform == 'darwin':
                         import stat
                         import subprocess as sp
                         try:
-                            driver_dir = os.path.dirname(driver_path)
+                            # Obtener directorio raíz de .wdm
+                            wdm_root = os.path.expanduser("~/.wdm")
 
-                            # Remover quarantine recursivamente
-                            sp.run(['xattr', '-r', '-d', 'com.apple.quarantine', driver_dir],
+                            # Remover quarantine de TODO el directorio .wdm
+                            self.log("Removiendo atributos de seguridad de macOS...")
+                            sp.run(['xattr', '-r', '-d', 'com.apple.quarantine', wdm_root],
                                    capture_output=True, check=False)
 
                             # Dar permisos de ejecución
-                            os.chmod(driver_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+                            os.chmod(driver_path, 0o755)
+
+                            # Intentar ejecutar codesign para re-firmar (puede fallar pero vale la pena intentar)
+                            sp.run(['codesign', '--force', '--deep', '--sign', '-', driver_path],
+                                   capture_output=True, check=False)
 
                             self.log("✓ Permisos configurados")
                         except Exception as perm_error:
                             self.log(f"⚠ Error configurando permisos: {perm_error}")
 
                 except Exception as wdm_error:
-                    self.log(f"⚠ Error con webdriver-manager: {wdm_error}")
-                    import traceback
-                    self.log(f"Detalle: {traceback.format_exc()}")
+                    self.log(f"✗ Error con webdriver-manager: {wdm_error}")
+                    self.log("Por favor, instala ChromeDriver con Homebrew:")
+                    self.log("  brew install --cask chromedriver")
                     driver_path = None
 
             # Crear servicio con el driver encontrado
@@ -204,6 +224,11 @@ class TicketAutomation:
                     service = Service(**service_kwargs)
             except Exception as service_error:
                 self.log(f"✗ Error creando servicio: {service_error}")
+                self.log("")
+                self.log("SOLUCIÓN DEFINITIVA:")
+                self.log("Ejecuta estos comandos en tu terminal:")
+                self.log("  brew install --cask chromedriver")
+                self.log("  xattr -d com.apple.quarantine $(which chromedriver)")
                 raise
 
             # Crear driver con el servicio configurado
