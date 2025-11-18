@@ -355,6 +355,52 @@ class TicketAutomation:
         # Try case-insensitive comparison as last resort
         return norm1.upper() == norm2.upper()
 
+    def normalize_text(self, text):
+        """
+        Normalize generic text for comparison (non-datetime strings).
+        Handles whitespace, case, and common formatting variations.
+
+        Args:
+            text: Text string to normalize
+
+        Returns:
+            Normalized text string
+        """
+        if not text or not isinstance(text, str):
+            return text
+
+        # Strip whitespace
+        normalized = text.strip()
+
+        # Normalize multiple spaces to single space
+        normalized = re.sub(r'\s+', ' ', normalized)
+
+        # Remove non-breaking spaces and other Unicode whitespace
+        normalized = normalized.replace('\u00a0', ' ').replace('\u2009', ' ')
+
+        return normalized
+
+    def text_matches(self, text1, text2):
+        """
+        Compare two text strings with flexible matching.
+
+        Args:
+            text1: First text string
+            text2: Second text string
+
+        Returns:
+            True if texts match (case-insensitive, whitespace-normalized), False otherwise
+        """
+        if not text1 or not text2:
+            return False
+
+        # Normalize both texts
+        norm1 = self.normalize_text(text1)
+        norm2 = self.normalize_text(text2)
+
+        # Case-insensitive comparison
+        return norm1.upper() == norm2.upper()
+
     def get_column_index(self, column_name, worksheet=None):
         """
         Get the 1-based column index for a given column name in the current worksheet.
@@ -921,13 +967,20 @@ class TicketAutomation:
                         opciones_disponibles = [opt.text.strip() for opt in opciones_elements]
                         self.log(f"  Opciones disponibles en dropdown: {opciones_disponibles}")
 
-                        # Verificar si el tipo del Sheet está en las opciones del dropdown
-                        if tipo_documento in opciones_disponibles:
-                            # El tipo existe: buscar y hacer click en la opción EXACTA del Sheet
-                            self.log(f"  ✓ Tipo '{tipo_documento}' existe en el dropdown")
+                        # Find matching option using flexible text matching
+                        matching_tipo = None
+                        for opcion in opciones_disponibles:
+                            if self.text_matches(tipo_documento, opcion):
+                                matching_tipo = opcion
+                                break
 
-                            # XPath que busca el texto exacto dentro del span
-                            tipo_option_xpath = f"//li[contains(@id, 'headlessui-listbox-option')]//span[@class='font-normal block truncate' and text()='{tipo_documento}']"
+                        # Verificar si el tipo del Sheet está en las opciones del dropdown
+                        if matching_tipo:
+                            # El tipo existe: buscar y hacer click en la opción EXACTA del dropdown
+                            self.log(f"  ✓ Tipo '{tipo_documento}' coincide con '{matching_tipo}' en el dropdown")
+
+                            # XPath que busca el texto exacto dentro del span (usar el matching_tipo del dropdown)
+                            tipo_option_xpath = f"//li[contains(@id, 'headlessui-listbox-option')]//span[@class='font-normal block truncate' and text()='{matching_tipo}']"
 
                             tipo_option = WebDriverWait(self.driver, 5).until(
                                 EC.element_to_be_clickable((By.XPATH, tipo_option_xpath))
