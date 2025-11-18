@@ -248,7 +248,135 @@ class TicketAutomation:
             import traceback
             self.log(f"Detalle: {traceback.format_exc()}")
             return False
-        
+
+    def normalize_datetime_string(self, datetime_str):
+        """
+        Normalize date/time strings from Google Sheets to match website format.
+        Handles locale-dependent formats from Windows and Mac.
+
+        Args:
+            datetime_str: Date/time string from Google Sheets (e.g., "22/11/2025, 4:00 p.m." or "11/22/2025, 4:00 PM")
+
+        Returns:
+            Normalized string in website format (e.g., "11/22/2025, 4:00 PM") or original if parsing fails
+        """
+        if not datetime_str or not isinstance(datetime_str, str):
+            return datetime_str
+
+        datetime_str = datetime_str.strip()
+
+        # Try multiple common formats from different locales
+        formats_to_try = [
+            # Windows Spanish/Latin American formats
+            "%d/%m/%Y, %I:%M %p",      # "22/11/2025, 4:00 PM"
+            "%d/%m/%Y, %I:%M %P",      # "22/11/2025, 4:00 p.m." (lowercase)
+            "%d/%m/%Y, %I:%M%p",       # "22/11/2025, 4:00PM" (no space)
+            "%d/%m/%Y, %I:%M%P",       # "22/11/2025, 4:00p.m." (lowercase, no space)
+            # US English formats (Mac default)
+            "%m/%d/%Y, %I:%M %p",      # "11/22/2025, 4:00 PM"
+            "%m/%d/%Y, %I:%M %P",      # "11/22/2025, 4:00 p.m."
+            "%m/%d/%Y, %I:%M%p",       # "11/22/2025, 4:00PM"
+            # ISO formats
+            "%Y-%m-%d %H:%M:%S",       # "2025-11-22 16:00:00"
+            "%Y-%m-%d %H:%M",          # "2025-11-22 16:00"
+            # Alternative separators
+            "%d-%m-%Y, %I:%M %p",      # "22-11-2025, 4:00 PM"
+            "%m-%d-%Y, %I:%M %p",      # "11-22-2025, 4:00 PM"
+        ]
+
+        # Try parsing with each format
+        for fmt in formats_to_try:
+            try:
+                # Parse the datetime
+                dt = datetime.strptime(datetime_str, fmt)
+                # Return in website's expected format: MM/DD/YYYY, H:MM AM/PM (uppercase)
+                return dt.strftime("%m/%d/%Y, %I:%M %p").upper()
+            except ValueError:
+                continue
+
+        # If no format worked, try a more flexible approach
+        # Replace lowercase am/pm with uppercase
+        normalized = datetime_str.replace('a.m.', 'AM').replace('p.m.', 'PM').replace('am', 'AM').replace('pm', 'PM')
+
+        # Try to detect DD/MM vs MM/DD and swap if needed
+        # Look for pattern: DD/MM/YYYY or MM/DD/YYYY
+        date_pattern = r'(\d{1,2})/(\d{1,2})/(\d{4})'
+        match = re.search(date_pattern, normalized)
+        if match:
+            first_num = int(match.group(1))
+            second_num = int(match.group(2))
+            year = match.group(3)
+
+            # If first number is > 12, it must be day (DD/MM format)
+            if first_num > 12:
+                # Swap to MM/DD format
+                day = match.group(1)
+                month = match.group(2)
+                # Replace in the string
+                old_date = f"{day}/{month}/{year}"
+                new_date = f"{month.zfill(2)}/{day.zfill(2)}/{year}"
+                normalized = normalized.replace(old_date, new_date)
+
+        return normalized
+
+    def dates_match(self, date_str1, date_str2):
+        """
+        Compare two date/time strings, ignoring format differences.
+
+        Args:
+            date_str1: First date/time string
+            date_str2: Second date/time string
+
+        Returns:
+            True if dates represent the same moment in time, False otherwise
+        """
+        if not date_str1 or not date_str2:
+            return False
+
+        # Try exact match first (fastest)
+        if date_str1.strip() == date_str2.strip():
+            return True
+
+        # Try normalized comparison
+        norm1 = self.normalize_datetime_string(date_str1)
+        norm2 = self.normalize_datetime_string(date_str2)
+
+        if norm1 == norm2:
+            return True
+
+        # Try case-insensitive comparison as last resort
+        return norm1.upper() == norm2.upper()
+
+    def get_column_index(self, column_name, worksheet=None):
+        """
+        Get the 1-based column index for a given column name in the current worksheet.
+
+        Args:
+            column_name: Name of the column to find
+            worksheet: Optional worksheet object. If not provided, uses self.current_worksheet
+
+        Returns:
+            1-based column index, or None if not found
+        """
+        try:
+            if not self.sheet:
+                return None
+
+            # Use provided worksheet or fall back to current_worksheet attribute
+            if not worksheet:
+                worksheet = getattr(self, 'current_worksheet', None)
+
+            if not worksheet:
+                return None
+
+            headers = worksheet.row_values(1)
+            if column_name in headers:
+                return headers.index(column_name) + 1
+            return None
+        except Exception as e:
+            self.log(f"Error getting column index for '{column_name}': {e}")
+            return None
+
     def login(self, email, password):
         """Realiza el login en el sistema"""
         try:
@@ -465,6 +593,9 @@ class TicketAutomation:
         try:
             self.log(f"\n=== Procesando fila {row_number}: {row_data.get('Nombre')} {row_data.get('Apellido')} ===")
 
+            # Set current row for error handling
+            self.current_row = row_number
+
             # PASO 1: Seleccionar función
             funcion = str(row_data.get('Función', '')).strip()
             if funcion:
@@ -493,13 +624,24 @@ class TicketAutomation:
                 self.log(f"  Opciones de función disponibles: {opciones_disponibles}")
 
                 if funcion:
-                    # Verificar si la función del Sheet está en las opciones del dropdown
-                    if funcion in opciones_disponibles:
-                        # La función existe: buscar y hacer click en la opción EXACTA del Sheet
-                        self.log(f"  ✓ Función '{funcion}' existe en el dropdown")
+                    # Normalize the function from Google Sheets for locale-independent comparison
+                    funcion_normalizada = self.normalize_datetime_string(funcion)
+                    self.log(f"  Función del Sheet: '{funcion}' (normalizada: '{funcion_normalizada}')")
 
-                        # XPath que busca el texto exacto dentro del span
-                        funcion_option_xpath = f"//li[contains(@id, 'headlessui-listbox-option')]//span[@class='font-semibold block truncate' and text()='{funcion}']"
+                    # Find matching option using flexible date matching
+                    matching_option = None
+                    for opcion in opciones_disponibles:
+                        if self.dates_match(funcion, opcion):
+                            matching_option = opcion
+                            break
+
+                    # Verificar si la función del Sheet está en las opciones del dropdown
+                    if matching_option:
+                        # La función existe: buscar y hacer click en la opción EXACTA del dropdown
+                        self.log(f"  ✓ Función '{funcion}' coincide con '{matching_option}' en el dropdown")
+
+                        # XPath que busca el texto exacto dentro del span (usar el matching_option del dropdown)
+                        funcion_option_xpath = f"//li[contains(@id, 'headlessui-listbox-option')]//span[@class='font-semibold block truncate' and text()='{matching_option}']"
 
                         try:
                             funcion_option = WebDriverWait(self.driver, 5).until(
@@ -538,9 +680,10 @@ class TicketAutomation:
 
                     else:
                         # La función del Sheet NO existe en el dropdown - ERROR CRÍTICO
-                        self.log(f"  ✗✗✗ ERROR CRÍTICO: Función '{funcion}' NO existe en el dropdown ✗✗✗")
+                        self.log(f"  ✗✗✗ ERROR CRÍTICO: Función '{funcion}' NO coincide con ninguna opción del dropdown ✗✗✗")
                         self.log(f"  Funciones válidas del evento: {opciones_disponibles}")
                         self.log(f"  Función en Google Sheet: '{funcion}'")
+                        self.log(f"  Función normalizada: '{funcion_normalizada}'")
 
                         # Cerrar el dropdown
                         try:
@@ -1028,6 +1171,9 @@ class TicketAutomation:
         try:
             self.log(f"\n=== Procesando INNOMINADO fila {row_number} ===")
 
+            # Set current row for error handling
+            self.current_row = row_number
+
             # PASO 1: Seleccionar función (IDÉNTICO A NOMINADOS)
             funcion = str(row_data.get('Función', '')).strip()
             if funcion:
@@ -1056,13 +1202,24 @@ class TicketAutomation:
                 self.log(f"  Opciones de función disponibles: {opciones_disponibles}")
 
                 if funcion:
-                    # Verificar si la función del Sheet está en las opciones del dropdown
-                    if funcion in opciones_disponibles:
-                        # La función existe: buscar y hacer click en la opción EXACTA del Sheet
-                        self.log(f"  ✓ Función '{funcion}' existe en el dropdown")
+                    # Normalize the function from Google Sheets for locale-independent comparison
+                    funcion_normalizada = self.normalize_datetime_string(funcion)
+                    self.log(f"  Función del Sheet: '{funcion}' (normalizada: '{funcion_normalizada}')")
 
-                        # XPath que busca el texto exacto dentro del span
-                        funcion_option_xpath = f"//li[contains(@id, 'headlessui-listbox-option')]//span[@class='font-semibold block truncate' and text()='{funcion}']"
+                    # Find matching option using flexible date matching
+                    matching_option = None
+                    for opcion in opciones_disponibles:
+                        if self.dates_match(funcion, opcion):
+                            matching_option = opcion
+                            break
+
+                    # Verificar si la función del Sheet está en las opciones del dropdown
+                    if matching_option:
+                        # La función existe: buscar y hacer click en la opción EXACTA del dropdown
+                        self.log(f"  ✓ Función '{funcion}' coincide con '{matching_option}' en el dropdown")
+
+                        # XPath que busca el texto exacto dentro del span (usar el matching_option del dropdown)
+                        funcion_option_xpath = f"//li[contains(@id, 'headlessui-listbox-option')]//span[@class='font-semibold block truncate' and text()='{matching_option}']"
 
                         try:
                             funcion_option = WebDriverWait(self.driver, 5).until(
@@ -1101,9 +1258,10 @@ class TicketAutomation:
 
                     else:
                         # La función del Sheet NO existe en el dropdown - ERROR CRÍTICO
-                        self.log(f"  ✗✗✗ ERROR CRÍTICO: Función '{funcion}' NO existe en el dropdown ✗✗✗")
+                        self.log(f"  ✗✗✗ ERROR CRÍTICO: Función '{funcion}' NO coincide con ninguna opción del dropdown ✗✗✗")
                         self.log(f"  Funciones válidas del evento: {opciones_disponibles}")
                         self.log(f"  Función en Google Sheet: '{funcion}'")
+                        self.log(f"  Función normalizada: '{funcion_normalizada}'")
 
                         # Cerrar el dropdown
                         try:
@@ -1510,12 +1668,13 @@ class TicketAutomation:
         """Procesa todos los tickets nominados"""
         try:
             worksheet = self.sheet.worksheet(worksheet_name)
+            self.current_worksheet = worksheet  # Set current worksheet for get_column_index()
             records = worksheet.get_all_records()
-            
+
             self.log(f"\n{'='*50}")
             self.log(f"Iniciando procesamiento de {len(records)} registros")
             self.log(f"{'='*50}\n")
-            
+
             # Obtener índices de columnas
             headers = worksheet.row_values(1)
             resultado_col = headers.index('Resultado') + 1 if 'Resultado' in headers else len(headers)
@@ -1592,6 +1751,7 @@ class TicketAutomation:
             except:
                 worksheet = self.sheet.worksheet(worksheet_name.lower())
 
+            self.current_worksheet = worksheet  # Set current worksheet for get_column_index()
             records = worksheet.get_all_records()
 
             self.log(f"\n{'='*50}")
