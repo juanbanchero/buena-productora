@@ -290,20 +290,18 @@ class TicketAutomation:
                 # Parse the datetime
                 dt = datetime.strptime(datetime_str, fmt)
                 # Return in website's expected format: MM/DD/YYYY, H:MM AM/PM (uppercase)
+                # Note: Use %-I on Unix or remove leading zero manually for Windows compatibility
+                # strftime %I always pads to 2 digits (01-12), but website uses 1 digit for hours < 10
                 result = dt.strftime("%m/%d/%Y, %I:%M %p").upper()
-                self.log(f"  [normalize] ✓ Parseado con formato #{i}: '{fmt}'")
-                self.log(f"  [normalize] Input: '{datetime_str}' → Output: '{result}'")
+                # Remove leading zero from hour if present (e.g., "04:00" -> "4:00")
+                result = re.sub(r', 0(\d:\d{2} [AP]M)', r', \1', result)
                 return result
             except ValueError:
                 continue
 
         # If no format worked, try a more flexible approach
-        self.log(f"  [normalize] ⚠ No se pudo parsear con formatos estándar, usando fallback")
-        self.log(f"  [normalize] Input original: '{datetime_str}'")
-
         # Replace lowercase am/pm with uppercase
         normalized = datetime_str.replace('a.m.', 'AM').replace('p.m.', 'PM').replace('am', 'AM').replace('pm', 'PM')
-        self.log(f"  [normalize] Después de reemplazar AM/PM: '{normalized}'")
 
         # Try to detect DD/MM vs MM/DD and swap if needed
         # Look for pattern: DD/MM/YYYY or MM/DD/YYYY
@@ -313,7 +311,6 @@ class TicketAutomation:
             first_num = int(match.group(1))
             second_num = int(match.group(2))
             year = match.group(3)
-            self.log(f"  [normalize] Detectado: first={first_num}, second={second_num}, year={year}")
 
             # If first number is > 12, it must be day (DD/MM format)
             if first_num > 12:
@@ -324,9 +321,10 @@ class TicketAutomation:
                 old_date = f"{day}/{month}/{year}"
                 new_date = f"{month.zfill(2)}/{day.zfill(2)}/{year}"
                 normalized = normalized.replace(old_date, new_date)
-                self.log(f"  [normalize] Swapeado DD/MM → MM/DD: '{old_date}' → '{new_date}'")
 
-        self.log(f"  [normalize] Output final (fallback): '{normalized}'")
+        # Remove leading zero from hour if present (ensure consistency with parsed dates)
+        normalized = re.sub(r', 0(\d:\d{2} [AP]M)', r', \1', normalized)
+
         return normalized
 
     def dates_match(self, date_str1, date_str2):
@@ -341,53 +339,21 @@ class TicketAutomation:
             True if dates represent the same moment in time, False otherwise
         """
         if not date_str1 or not date_str2:
-            self.log(f"  [dates_match] Una de las fechas es vacía: '{date_str1}' vs '{date_str2}'")
             return False
 
         # Try exact match first (fastest)
-        str1_stripped = date_str1.strip()
-        str2_stripped = date_str2.strip()
-
-        self.log(f"  [dates_match] Comparando exacto:")
-        self.log(f"    str1: '{str1_stripped}' (len={len(str1_stripped)})")
-        self.log(f"    str2: '{str2_stripped}' (len={len(str2_stripped)})")
-        self.log(f"    bytes str1: {str1_stripped.encode('utf-8')}")
-        self.log(f"    bytes str2: {str2_stripped.encode('utf-8')}")
-
-        if str1_stripped == str2_stripped:
-            self.log(f"  [dates_match] ✓ Match exacto!")
+        if date_str1.strip() == date_str2.strip():
             return True
 
         # Try normalized comparison
-        self.log(f"  [dates_match] Normalizando...")
         norm1 = self.normalize_datetime_string(date_str1)
         norm2 = self.normalize_datetime_string(date_str2)
 
-        self.log(f"  [dates_match] Comparando normalizadas:")
-        self.log(f"    norm1: '{norm1}' (len={len(norm1)})")
-        self.log(f"    norm2: '{norm2}' (len={len(norm2)})")
-        self.log(f"    bytes norm1: {norm1.encode('utf-8')}")
-        self.log(f"    bytes norm2: {norm2.encode('utf-8')}")
-
         if norm1 == norm2:
-            self.log(f"  [dates_match] ✓ Match normalizado!")
             return True
 
         # Try case-insensitive comparison as last resort
-        norm1_upper = norm1.upper()
-        norm2_upper = norm2.upper()
-
-        self.log(f"  [dates_match] Comparando case-insensitive:")
-        self.log(f"    upper1: '{norm1_upper}'")
-        self.log(f"    upper2: '{norm2_upper}'")
-
-        result = norm1_upper == norm2_upper
-        if result:
-            self.log(f"  [dates_match] ✓ Match case-insensitive!")
-        else:
-            self.log(f"  [dates_match] ✗ NO match en ningún nivel")
-
-        return result
+        return norm1.upper() == norm2.upper()
 
     def get_column_index(self, column_name, worksheet=None):
         """
@@ -673,13 +639,6 @@ class TicketAutomation:
                     # Find matching option using flexible date matching
                     matching_option = None
                     for opcion in opciones_disponibles:
-                        # Debug: log each comparison
-                        self.log(f"  DEBUG: Comparando '{funcion}' con '{opcion}'")
-                        opcion_normalizada = self.normalize_datetime_string(opcion)
-                        self.log(f"  DEBUG: Normalizada opcion: '{opcion_normalizada}'")
-                        self.log(f"  DEBUG: Normalizada funcion: '{funcion_normalizada}'")
-                        self.log(f"  DEBUG: Son iguales? {funcion_normalizada == opcion_normalizada}")
-
                         if self.dates_match(funcion, opcion):
                             matching_option = opcion
                             break
@@ -732,7 +691,6 @@ class TicketAutomation:
                         self.log(f"  ✗✗✗ ERROR CRÍTICO: Función '{funcion}' NO coincide con ninguna opción del dropdown ✗✗✗")
                         self.log(f"  Funciones válidas del evento: {opciones_disponibles}")
                         self.log(f"  Función en Google Sheet: '{funcion}'")
-                        self.log(f"  Función normalizada: '{funcion_normalizada}'")
 
                         # Cerrar el dropdown
                         try:
@@ -1258,13 +1216,6 @@ class TicketAutomation:
                     # Find matching option using flexible date matching
                     matching_option = None
                     for opcion in opciones_disponibles:
-                        # Debug: log each comparison
-                        self.log(f"  DEBUG: Comparando '{funcion}' con '{opcion}'")
-                        opcion_normalizada = self.normalize_datetime_string(opcion)
-                        self.log(f"  DEBUG: Normalizada opcion: '{opcion_normalizada}'")
-                        self.log(f"  DEBUG: Normalizada funcion: '{funcion_normalizada}'")
-                        self.log(f"  DEBUG: Son iguales? {funcion_normalizada == opcion_normalizada}")
-
                         if self.dates_match(funcion, opcion):
                             matching_option = opcion
                             break
@@ -1317,7 +1268,6 @@ class TicketAutomation:
                         self.log(f"  ✗✗✗ ERROR CRÍTICO: Función '{funcion}' NO coincide con ninguna opción del dropdown ✗✗✗")
                         self.log(f"  Funciones válidas del evento: {opciones_disponibles}")
                         self.log(f"  Función en Google Sheet: '{funcion}'")
-                        self.log(f"  Función normalizada: '{funcion_normalizada}'")
 
                         # Cerrar el dropdown
                         try:
