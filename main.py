@@ -300,8 +300,14 @@ class TicketAutomation:
                 continue
 
         # If no format worked, try a more flexible approach
-        # Replace lowercase am/pm with uppercase
-        normalized = datetime_str.replace('a.m.', 'AM').replace('p.m.', 'PM').replace('am', 'AM').replace('pm', 'PM')
+        # Replace lowercase am/pm with uppercase (handle various formats including "p. m." with space)
+        normalized = datetime_str
+        # Handle formats with space: "a. m." and "p. m."
+        normalized = normalized.replace('a. m.', 'AM').replace('p. m.', 'PM')
+        # Handle formats without space: "a.m." and "p.m."
+        normalized = normalized.replace('a.m.', 'AM').replace('p.m.', 'PM')
+        # Handle simple lowercase: "am" and "pm"
+        normalized = normalized.replace(' am', ' AM').replace(' pm', ' PM')
 
         # Try to detect DD/MM vs MM/DD and swap if needed
         # Look for pattern: DD/MM/YYYY or MM/DD/YYYY
@@ -728,8 +734,14 @@ class TicketAutomation:
                                     pass
 
                             self.log(f"  ⏭️  Saltando esta entrada...")
-                            self.driver.get("https://pos.buenalive.com/events")
-                            time.sleep(2)
+                            # Volver a la página de venta para el siguiente ticket
+                            try:
+                                self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
+                                WebDriverWait(self.driver, 5).until(
+                                    EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
+                                )
+                            except:
+                                pass
                             return
 
                     else:
@@ -755,8 +767,14 @@ class TicketAutomation:
 
                         # SKIP esta entrada
                         self.log(f"  ⏭️  Saltando esta entrada y continuando con la siguiente...")
-                        self.driver.get("https://pos.buenalive.com/events")
-                        time.sleep(2)
+                        # Volver a la página de venta para el siguiente ticket
+                        try:
+                            self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
+                            WebDriverWait(self.driver, 5).until(
+                                EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
+                            )
+                        except:
+                            pass
                         return
 
                 else:
@@ -856,8 +874,14 @@ class TicketAutomation:
                             pass
 
                     self.log(f"  ⏭️  Saltando esta entrada...")
-                    self.driver.get("https://pos.buenalive.com/events")
-                    time.sleep(2)
+                    # Volver a la página de venta para el siguiente ticket
+                    try:
+                        self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
+                        WebDriverWait(self.driver, 5).until(
+                            EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
+                        )
+                    except:
+                        pass
                     return
 
             except Exception as e:
@@ -874,8 +898,14 @@ class TicketAutomation:
                         pass
 
                 self.log(f"  ⏭️  Saltando esta entrada...")
-                self.driver.get("https://pos.buenalive.com/events")
-                time.sleep(2)
+                # Volver a la página de venta para el siguiente ticket
+                try:
+                    self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
+                    WebDriverWait(self.driver, 5).until(
+                        EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
+                    )
+                except:
+                    pass
                 return
 
             # PASO 4: Cantidad (siempre 1, ya viene por defecto)
@@ -1019,8 +1049,14 @@ class TicketAutomation:
 
                             # SKIP esta entrada - volver al dashboard y salir del método
                             self.log(f"  ⏭️  Saltando esta entrada y continuando con la siguiente...")
-                            self.driver.get("https://pos.buenalive.com/events")
-                            time.sleep(2)
+                            # Volver a la página de venta para el siguiente ticket
+                            try:
+                                self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
+                                WebDriverWait(self.driver, 5).until(
+                                    EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
+                                )
+                            except:
+                                pass
                             return  # Salir del método sin procesar esta entrada
 
                     except Exception as e:
@@ -1050,8 +1086,14 @@ class TicketAutomation:
                             pass
 
                     self.log(f"  ⏭️  Saltando esta entrada...")
-                    self.driver.get("https://pos.buenalive.com/events")
-                    time.sleep(2)
+                    # Volver a la página de venta para el siguiente ticket
+                    try:
+                        self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
+                        WebDriverWait(self.driver, 5).until(
+                            EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
+                        )
+                    except:
+                        pass
                     return
 
                 self.wait_and_send_keys("holders.0.firstName", nombre, description="nombre")
@@ -1210,8 +1252,16 @@ class TicketAutomation:
                 return ticket_number
             else:
                 self.log("✗ No se pudo capturar el número de ticket")
+                # Intentar volver a la página de venta para el siguiente ticket
+                try:
+                    self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
+                    WebDriverWait(self.driver, 5).until(
+                        EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
+                    )
+                except:
+                    pass
                 return None
-                
+
         except Exception as e:
             self.log(f"✗ Error en emisión: {str(e)}")
             # Intentar volver al inicio
@@ -1312,8 +1362,14 @@ class TicketAutomation:
                                     pass
 
                             self.log(f"  ⏭️  Saltando esta entrada...")
-                            self.driver.get("https://pos.buenalive.com/events")
-                            time.sleep(2)
+                            # Volver a la página de venta para el siguiente ticket
+                            try:
+                                self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
+                                WebDriverWait(self.driver, 5).until(
+                                    EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
+                                )
+                            except:
+                                pass
                             return
 
                     else:
@@ -1339,8 +1395,14 @@ class TicketAutomation:
 
                         # SKIP esta entrada
                         self.log(f"  ⏭️  Saltando esta entrada y continuando con la siguiente...")
-                        self.driver.get("https://pos.buenalive.com/events")
-                        time.sleep(2)
+                        # Volver a la página de venta para el siguiente ticket
+                        try:
+                            self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
+                            WebDriverWait(self.driver, 5).until(
+                                EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
+                            )
+                        except:
+                            pass
                         return
 
                 else:
@@ -1440,8 +1502,14 @@ class TicketAutomation:
                             pass
 
                     self.log(f"  ⏭️  Saltando esta entrada...")
-                    self.driver.get("https://pos.buenalive.com/events")
-                    time.sleep(2)
+                    # Volver a la página de venta para el siguiente ticket
+                    try:
+                        self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
+                        WebDriverWait(self.driver, 5).until(
+                            EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
+                        )
+                    except:
+                        pass
                     return
 
             except Exception as e:
@@ -1458,8 +1526,14 @@ class TicketAutomation:
                         pass
 
                 self.log(f"  ⏭️  Saltando esta entrada...")
-                self.driver.get("https://pos.buenalive.com/events")
-                time.sleep(2)
+                # Volver a la página de venta para el siguiente ticket
+                try:
+                    self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
+                    WebDriverWait(self.driver, 5).until(
+                        EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
+                    )
+                except:
+                    pass
                 return
 
             # PASO 4: Cantidad (DIFERENTE - Leer y llenar cantidad)
