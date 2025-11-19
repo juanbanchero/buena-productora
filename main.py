@@ -700,22 +700,27 @@ class TicketAutomation:
                         # La función existe: buscar y hacer click en la opción EXACTA del dropdown
                         self.log(f"  ✓ Función '{funcion}' coincide con '{matching_option}' en el dropdown")
 
-                        # XPath que busca el texto exacto dentro del span (usar el matching_option del dropdown)
-                        funcion_option_xpath = f"//li[contains(@id, 'headlessui-listbox-option')]//span[@class='font-semibold block truncate' and text()='{matching_option}']"
-
                         try:
-                            funcion_option = WebDriverWait(self.driver, 5).until(
-                                EC.element_to_be_clickable((By.XPATH, funcion_option_xpath))
-                            )
+                            # Find the matching element from the already-loaded options list
+                            # This avoids XPath issues with special characters in the text
+                            funcion_option = None
+                            for elem in opciones_elements:
+                                if elem.text.strip() == matching_option:
+                                    # Get the parent li element which is clickable
+                                    funcion_option = elem.find_element(By.XPATH, "./ancestor::li[contains(@id, 'headlessui-listbox-option')]")
+                                    break
 
-                            # Click en la opción
-                            if self.headless_mode:
-                                self.driver.execute_script("arguments[0].click();", funcion_option)
+                            if funcion_option:
+                                # Click en la opción
+                                if self.headless_mode:
+                                    self.driver.execute_script("arguments[0].click();", funcion_option)
+                                else:
+                                    funcion_option.click()
+
+                                self.log(f"  ✓ Función seleccionada: {funcion}")
+                                time.sleep(0.3)
                             else:
-                                funcion_option.click()
-
-                            self.log(f"  ✓ Función seleccionada: {funcion}")
-                            time.sleep(0.3)
+                                raise Exception(f"No se encontró el elemento para '{matching_option}'")
 
                         except Exception as e:
                             self.log(f"  ✗ Error haciendo click en función: {e}")
@@ -1328,22 +1333,27 @@ class TicketAutomation:
                         # La función existe: buscar y hacer click en la opción EXACTA del dropdown
                         self.log(f"  ✓ Función '{funcion}' coincide con '{matching_option}' en el dropdown")
 
-                        # XPath que busca el texto exacto dentro del span (usar el matching_option del dropdown)
-                        funcion_option_xpath = f"//li[contains(@id, 'headlessui-listbox-option')]//span[@class='font-semibold block truncate' and text()='{matching_option}']"
-
                         try:
-                            funcion_option = WebDriverWait(self.driver, 5).until(
-                                EC.element_to_be_clickable((By.XPATH, funcion_option_xpath))
-                            )
+                            # Find the matching element from the already-loaded options list
+                            # This avoids XPath issues with special characters in the text
+                            funcion_option = None
+                            for elem in opciones_elements:
+                                if elem.text.strip() == matching_option:
+                                    # Get the parent li element which is clickable
+                                    funcion_option = elem.find_element(By.XPATH, "./ancestor::li[contains(@id, 'headlessui-listbox-option')]")
+                                    break
 
-                            # Click en la opción
-                            if self.headless_mode:
-                                self.driver.execute_script("arguments[0].click();", funcion_option)
+                            if funcion_option:
+                                # Click en la opción
+                                if self.headless_mode:
+                                    self.driver.execute_script("arguments[0].click();", funcion_option)
+                                else:
+                                    funcion_option.click()
+
+                                self.log(f"  ✓ Función seleccionada: {funcion}")
+                                time.sleep(0.3)
                             else:
-                                funcion_option.click()
-
-                            self.log(f"  ✓ Función seleccionada: {funcion}")
-                            time.sleep(0.3)
+                                raise Exception(f"No se encontró el elemento para '{matching_option}'")
 
                         except Exception as e:
                             self.log(f"  ✗ Error haciendo click en función: {e}")
