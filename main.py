@@ -701,14 +701,20 @@ class TicketAutomation:
                         self.log(f"  ✓ Función '{funcion}' coincide con '{matching_option}' en el dropdown")
 
                         try:
-                            # Find the matching element from the already-loaded options list
-                            # This avoids XPath issues with special characters in the text
+                            # Find and click the matching option
+                            # Re-fetch elements to avoid stale element issues
+                            opciones_li = self.driver.find_elements(By.XPATH,
+                                "//li[contains(@id, 'headlessui-listbox-option')]")
+
                             funcion_option = None
-                            for elem in opciones_elements:
-                                if elem.text.strip() == matching_option:
-                                    # Get the parent li element which is clickable
-                                    funcion_option = elem.find_element(By.XPATH, "./ancestor::li[contains(@id, 'headlessui-listbox-option')]")
-                                    break
+                            for li_elem in opciones_li:
+                                try:
+                                    span_elem = li_elem.find_element(By.XPATH, ".//span[@class='font-semibold block truncate']")
+                                    if span_elem.text.strip() == matching_option:
+                                        funcion_option = li_elem
+                                        break
+                                except:
+                                    continue
 
                             if funcion_option:
                                 # Click en la opción
@@ -1334,14 +1340,20 @@ class TicketAutomation:
                         self.log(f"  ✓ Función '{funcion}' coincide con '{matching_option}' en el dropdown")
 
                         try:
-                            # Find the matching element from the already-loaded options list
-                            # This avoids XPath issues with special characters in the text
+                            # Find and click the matching option
+                            # Re-fetch elements to avoid stale element issues
+                            opciones_li = self.driver.find_elements(By.XPATH,
+                                "//li[contains(@id, 'headlessui-listbox-option')]")
+
                             funcion_option = None
-                            for elem in opciones_elements:
-                                if elem.text.strip() == matching_option:
-                                    # Get the parent li element which is clickable
-                                    funcion_option = elem.find_element(By.XPATH, "./ancestor::li[contains(@id, 'headlessui-listbox-option')]")
-                                    break
+                            for li_elem in opciones_li:
+                                try:
+                                    span_elem = li_elem.find_element(By.XPATH, ".//span[@class='font-semibold block truncate']")
+                                    if span_elem.text.strip() == matching_option:
+                                        funcion_option = li_elem
+                                        break
+                                except:
+                                    continue
 
                             if funcion_option:
                                 # Click en la opción
