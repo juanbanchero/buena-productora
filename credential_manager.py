@@ -23,6 +23,7 @@ See Also:
     - cryptography.fernet: Encryption implementation details
 """
 import os
+import sys
 import json
 import getpass
 import hashlib
@@ -33,18 +34,33 @@ import base64
 class CredentialManager:
     def __init__(self, app_name="buena-live"):
         self.app_name = app_name
+        self._app_dir = self._get_app_dir()
         self.credentials_file = self._get_credentials_path()
         self._encryption_key = self._generate_key()
 
+    def _get_app_dir(self):
+        """Get a stable application directory independent of CWD.
+
+        Uses the executable's directory (frozen) or the script's directory (dev)
+        instead of os.getcwd(), which changes depending on how the app is launched
+        on Windows (double-click, shortcut, cmd, etc.).
+        """
+        if getattr(sys, 'frozen', False):
+            # PyInstaller: use the directory containing the .exe
+            return os.path.dirname(sys.executable)
+        else:
+            # Development: use the directory containing this script
+            return os.path.dirname(os.path.abspath(__file__))
+
     def _get_credentials_path(self):
         """Genera la ruta del archivo de credenciales específica por usuario/app"""
-        # Usar el directorio actual del proyecto para hacer las credenciales específicas
-        current_dir = os.path.basename(os.getcwd())
+        # Use stable app directory name instead of CWD
+        dir_name = os.path.basename(self._app_dir)
         username = getpass.getuser()
 
         # Crear directorio oculto en home del usuario
         home_dir = Path.home()
-        app_dir = home_dir / f".{self.app_name}_{username}_{current_dir}"
+        app_dir = home_dir / f".{self.app_name}_{username}_{dir_name}"
         app_dir.mkdir(exist_ok=True)
 
         return app_dir / "user_credentials.enc"
@@ -53,13 +69,22 @@ class CredentialManager:
         """Genera una clave de encriptación específica por usuario/máquina/app"""
         # Combinar información del sistema para generar clave única
         username = getpass.getuser()
-        current_dir = os.path.abspath(os.getcwd())
+        # Use stable app directory instead of CWD for consistent key generation
+        stable_dir = os.path.abspath(self._app_dir)
 
         # Crear seed único para esta instalación/usuario
-        seed = f"{username}:{current_dir}:{self.app_name}".encode()
+        seed = f"{username}:{stable_dir}:{self.app_name}".encode()
         key_hash = hashlib.sha256(seed).digest()
 
         # Convertir a clave Fernet válida
+        return base64.urlsafe_b64encode(key_hash[:32])
+
+    def _generate_legacy_key(self):
+        """Generate key using the old CWD-based method for migration purposes."""
+        username = getpass.getuser()
+        current_dir = os.path.abspath(os.getcwd())
+        seed = f"{username}:{current_dir}:{self.app_name}".encode()
+        key_hash = hashlib.sha256(seed).digest()
         return base64.urlsafe_b64encode(key_hash[:32])
 
     def save_credentials(self, email, password):
@@ -88,18 +113,37 @@ class CredentialManager:
             return False
 
     def load_credentials(self):
-        """Carga credenciales automáticamente si existen"""
+        """Carga credenciales automáticamente si existen.
+
+        If decryption fails with the current key, attempts migration from the
+        legacy CWD-based key and re-encrypts with the new stable key.
+        """
         try:
             if not os.path.exists(self.credentials_file):
                 return None, None
 
-            fernet = Fernet(self._encryption_key)
-
-            # Leer y desencriptar
             with open(self.credentials_file, 'rb') as f:
                 encrypted_data = f.read()
 
-            decrypted_data = fernet.decrypt(encrypted_data)
+            # Try current key first
+            try:
+                fernet = Fernet(self._encryption_key)
+                decrypted_data = fernet.decrypt(encrypted_data)
+            except Exception:
+                # Try legacy CWD-based key for migration
+                try:
+                    legacy_key = self._generate_legacy_key()
+                    legacy_fernet = Fernet(legacy_key)
+                    decrypted_data = legacy_fernet.decrypt(encrypted_data)
+                    # Re-encrypt with new stable key
+                    new_fernet = Fernet(self._encryption_key)
+                    with open(self.credentials_file, 'wb') as f:
+                        f.write(new_fernet.encrypt(decrypted_data))
+                    print("Credenciales migradas a clave estable")
+                except Exception:
+                    print("Error: no se pudieron desencriptar credenciales con ninguna clave")
+                    return None, None
+
             credentials_data = json.loads(decrypted_data.decode())
 
             # Verificar que sea para esta app

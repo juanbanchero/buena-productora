@@ -45,12 +45,12 @@ def verify_required_modules():
     required = [
         ('tkinter', 'tkinter'),
         ('selenium', 'selenium'),
+        ('webdriver_manager', 'webdriver-manager'),
         ('gspread', 'gspread'),
         ('google.oauth2', 'google-auth'),
         ('cryptography', 'cryptography'),
-        ('tufup', 'tufup'),
+        ('requests', 'requests'),
         ('PyInstaller', 'pyinstaller'),
-        ('bsdiff4', 'bsdiff4'),
         ('packaging', 'packaging'),
     ]
 
@@ -173,9 +173,9 @@ def verify_configuration():
 
     try:
         import updater
-        print_success(f"Update URL: {updater.UPDATE_REPO_URL}")
-        if "YOUR_USERNAME" in updater.UPDATE_REPO_URL:
-            print_warning("Update URL contains placeholder - update before distribution")
+        print_success(f"GitHub repo: {updater.GITHUB_REPO}")
+        if "YOUR_USERNAME" in updater.GITHUB_REPO:
+            print_warning("GitHub repo contains placeholder - update before distribution")
     except:
         print_error("Could not read update configuration")
 

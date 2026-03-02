@@ -50,39 +50,49 @@ from version import __version__
 import updater
 
 # Fix for PyInstaller --noconsole mode on Windows
-# When packaged as a windowed app, sys.stdout/stderr are None, causing ChromeDriver to crash
-# Also force UTF-8 encoding to support Unicode characters (✓, ✗, ⚠, etc.)
-if sys.stdout is None:
-    sys.stdout = open(os.devnull, "w", encoding="utf-8")
-if sys.stderr is None:
-    sys.stderr = open(os.devnull, "w", encoding="utf-8")
-if sys.stdin is None:
-    sys.stdin = open(os.devnull, "r", encoding="utf-8")
+# When packaged as a windowed app, sys.stdout/stderr are None or broken handles,
+# causing ChromeDriver to crash. Also force UTF-8 encoding for Unicode characters.
+
+def _ensure_safe_stream(stream, mode="w"):
+    """Test if a stream is functional; return devnull if not."""
+    if stream is None:
+        return open(os.devnull, mode, encoding="utf-8")
+    try:
+        # Test that the stream actually works (handles broken pipes on Windows)
+        if hasattr(stream, 'write') and mode == "w":
+            stream.write("")
+            if hasattr(stream, 'flush'):
+                stream.flush()
+        return stream
+    except (OSError, ValueError, AttributeError):
+        return open(os.devnull, mode, encoding="utf-8")
+
+sys.stdout = _ensure_safe_stream(sys.stdout, "w")
+sys.stderr = _ensure_safe_stream(sys.stderr, "w")
+sys.stdin = _ensure_safe_stream(sys.stdin, "r")
 
 # Force UTF-8 encoding on Windows to handle Unicode characters in logs
 if sys.platform == 'win32':
-    # Reconfigure stdout/stderr with UTF-8 encoding if they exist
-    if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
-        try:
-            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-        except (AttributeError, ValueError):
-            # Fallback for older Python versions or if reconfigure fails
-            import io
-            if not isinstance(sys.stdout, io.TextIOWrapper) or sys.stdout.encoding != 'utf-8':
-                sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-
-    if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
-        try:
-            sys.stderr.reconfigure(encoding='utf-8', errors='replace')
-        except (AttributeError, ValueError):
-            import io
-            if not isinstance(sys.stderr, io.TextIOWrapper) or sys.stderr.encoding != 'utf-8':
-                sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+    import io
+    for _stream_name in ('stdout', 'stderr'):
+        _stream = getattr(sys, _stream_name)
+        # Skip devnull streams (already UTF-8)
+        if _stream and _stream.name != os.devnull and hasattr(_stream, 'reconfigure'):
+            try:
+                _stream.reconfigure(encoding='utf-8', errors='replace')
+            except (AttributeError, ValueError, OSError):
+                try:
+                    if hasattr(_stream, 'buffer'):
+                        setattr(sys, _stream_name,
+                                io.TextIOWrapper(_stream.buffer, encoding='utf-8', errors='replace'))
+                except (AttributeError, OSError):
+                    pass
 
 class TicketAutomation:
     def __init__(self, headless_mode=True):
         self.driver = None
         self.sheet = None
+        self.gspread_client = None
         # Get correct path for credentials.json (works in both dev and packaged .exe)
         if getattr(sys, 'frozen', False):
             # Running as compiled executable - use PyInstaller's temp folder
@@ -111,8 +121,14 @@ class TicketAutomation:
         chrome_options.add_argument('--disable-infobars')
         chrome_options.add_argument('--enable-unsafe-swiftshader')
 
-        # User agent para evitar detección de bot
-        chrome_options.add_argument('--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+        # User agent matching the current platform to avoid bot detection
+        if sys.platform == 'win32':
+            ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        elif sys.platform == 'linux':
+            ua = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        else:
+            ua = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        chrome_options.add_argument(f'--user-agent={ua}')
 
         # Configuración headless mode
         if self.headless_mode:
@@ -146,12 +162,13 @@ class TicketAutomation:
             if sys.platform == 'win32':
                 service_kwargs['popen_kw'] = {"creation_flags": 0x08000000}
 
-            # Mac: Solución para el error de código -9 (macOS bloqueando ChromeDriver)
+            # Platform-specific ChromeDriver setup
             driver_path = None
-            if sys.platform == 'darwin':
-                import subprocess as sp
-                import shutil
+            import subprocess as sp
+            import shutil
 
+            if sys.platform == 'darwin':
+                # Mac: Solución para el error de código -9 (macOS bloqueando ChromeDriver)
                 # SOLUCIÓN 1: Intentar usar ChromeDriver de Homebrew (recomendado)
                 try:
                     result = sp.run(['which', 'chromedriver'], capture_output=True, text=True, check=False)
@@ -178,7 +195,33 @@ class TicketAutomation:
                         except Exception as e:
                             self.log(f"⚠ No se pudo eliminar cache: {e}")
 
-            # Si no se encontró en Homebrew, usar webdriver-manager
+            elif sys.platform == 'win32':
+                # Windows: Check PATH, kill stale processes, clean cache
+                # 1. Check if chromedriver is already in PATH
+                chromedriver_in_path = shutil.which('chromedriver')
+                if chromedriver_in_path:
+                    self.log(f"✓ ChromeDriver encontrado en PATH: {chromedriver_in_path}")
+                    driver_path = chromedriver_in_path
+
+                # 2. Kill stale chromedriver processes before cache cleanup
+                if not driver_path:
+                    try:
+                        sp.run(['taskkill', '/F', '/IM', 'chromedriver.exe'],
+                               capture_output=True, check=False)
+                    except Exception:
+                        pass
+
+                    # 3. Clean webdriver-manager cache (same as macOS)
+                    wdm_cache = os.path.expanduser("~/.wdm")
+                    if os.path.exists(wdm_cache):
+                        self.log("Limpiando cache de webdriver-manager...")
+                        try:
+                            shutil.rmtree(wdm_cache)
+                            self.log("✓ Cache limpiado")
+                        except Exception as e:
+                            self.log(f"⚠ No se pudo limpiar cache: {e}")
+
+            # If no platform-specific path found, use webdriver-manager
             if not driver_path:
                 self.log("Descargando ChromeDriver compatible con webdriver-manager...")
                 try:
@@ -187,32 +230,31 @@ class TicketAutomation:
 
                     # Mac: Intentar remover cuarentena agresivamente
                     if sys.platform == 'darwin':
-                        import stat
-                        import subprocess as sp
                         try:
-                            # Obtener directorio raíz de .wdm
                             wdm_root = os.path.expanduser("~/.wdm")
-
-                            # Remover quarantine de TODO el directorio .wdm
                             self.log("Removiendo atributos de seguridad de macOS...")
                             sp.run(['xattr', '-r', '-d', 'com.apple.quarantine', wdm_root],
                                    capture_output=True, check=False)
-
-                            # Dar permisos de ejecución
                             os.chmod(driver_path, 0o755)
-
-                            # Intentar ejecutar codesign para re-firmar (puede fallar pero vale la pena intentar)
                             sp.run(['codesign', '--force', '--deep', '--sign', '-', driver_path],
                                    capture_output=True, check=False)
-
                             self.log("✓ Permisos configurados")
                         except Exception as perm_error:
                             self.log(f"⚠ Error configurando permisos: {perm_error}")
 
+                    # Windows: warn if chromedriver was likely deleted by antivirus
+                    if sys.platform == 'win32' and not os.path.exists(driver_path):
+                        self.log("⚠ ChromeDriver descargado pero no se encuentra en disco")
+                        self.log("  Es posible que tu antivirus lo haya eliminado.")
+                        self.log("  Agregá una excepción para ~/.wdm en tu antivirus y reintentá.")
+
                 except Exception as wdm_error:
                     self.log(f"✗ Error con webdriver-manager: {wdm_error}")
-                    self.log("Por favor, instala ChromeDriver con Homebrew:")
-                    self.log("  brew install --cask chromedriver")
+                    if sys.platform == 'darwin':
+                        self.log("Por favor, instala ChromeDriver con Homebrew:")
+                        self.log("  brew install --cask chromedriver")
+                    else:
+                        self.log("Asegurate de tener Google Chrome instalado")
                     driver_path = None
 
             # Crear servicio con el driver encontrado
@@ -249,6 +291,111 @@ class TicketAutomation:
             self.log(f"Detalle: {traceback.format_exc()}")
             return False
 
+    def _navigate_to_sale_page(self):
+        """Navigate back to the sale page for the current event.
+
+        Returns True if navigation succeeded, False if no event is selected
+        or navigation failed.
+        """
+        if not self.selected_event:
+            self.log("⚠ No hay evento seleccionado para navegar")
+            return False
+        try:
+            self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
+            WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.XPATH,
+                    "//button[contains(@id, 'headlessui-listbox-button')] | //input | //form"))
+            )
+            return True
+        except Exception as e:
+            self.log(f"⚠ Error navegando a página de emisión: {e}")
+            return False
+
+    def extract_event_options(self):
+        """Extract all dropdown values from the current event's sale page.
+
+        Must be called after navigating to the event's /sale page.
+        Opens each dropdown, reads the options, and closes it.
+
+        Returns:
+            dict with keys 'funciones', 'sectores', 'valores', 'tipos_documento',
+            each containing a list of strings (exact dropdown option texts).
+            Returns None if extraction fails.
+        """
+        options = {
+            'funciones': [],
+            'sectores': [],
+            'valores': [],
+            'tipos_documento': [],
+        }
+
+        try:
+            self.log("Extrayendo opciones del evento...")
+
+            # 1. Funciones (first listbox button)
+            try:
+                funcion_buttons = self.driver.find_elements(By.XPATH,
+                    "//button[contains(@id, 'headlessui-listbox-button') and contains(@class, 'cursor-default')]")
+                if funcion_buttons:
+                    self.driver.execute_script("arguments[0].click();", funcion_buttons[0])
+                    time.sleep(0.5)
+                    opciones = self.driver.find_elements(By.XPATH,
+                        "//li[contains(@id, 'headlessui-listbox-option')]//span[@class='font-semibold block truncate']")
+                    options['funciones'] = [opt.text.strip() for opt in opciones if opt.text.strip()]
+                    self.log(f"  Funciones: {options['funciones']}")
+                    # Close dropdown
+                    self.driver.execute_script("document.body.click();")
+                    time.sleep(0.3)
+            except Exception as e:
+                self.log(f"  Error extrayendo funciones: {e}")
+
+            # 2. Sectores (second listbox button)
+            try:
+                sector_buttons = self.driver.find_elements(By.XPATH,
+                    "//button[contains(@id, 'headlessui-listbox-button')]")
+                if len(sector_buttons) > 1:
+                    self.driver.execute_script("arguments[0].click();", sector_buttons[1])
+                    time.sleep(0.5)
+                    opciones = self.driver.find_elements(By.XPATH,
+                        "//li[contains(@id, 'headlessui-listbox-option')]//span[@class='font-semibold block truncate']")
+                    options['sectores'] = [opt.text.strip() for opt in opciones if opt.text.strip()]
+                    self.log(f"  Sectores: {options['sectores']}")
+                    self.driver.execute_script("document.body.click();")
+                    time.sleep(0.3)
+            except Exception as e:
+                self.log(f"  Error extrayendo sectores: {e}")
+
+            # 3. Valores/Tarifas (combobox - click to show all, then read)
+            try:
+                tarifa_input = self.driver.find_element(By.XPATH,
+                    "//input[contains(@id, 'headlessui-combobox-input')]")
+                tarifa_input.click()
+                time.sleep(0.5)
+                opciones = self.driver.find_elements(By.XPATH,
+                    "//li[contains(@id, 'headlessui-combobox-option')]")
+                options['valores'] = [opt.text.strip() for opt in opciones if opt.text.strip()]
+                self.log(f"  Valores: {options['valores']}")
+                # Close by pressing Escape
+                tarifa_input.send_keys(Keys.ESCAPE)
+                time.sleep(0.3)
+            except Exception as e:
+                self.log(f"  Error extrayendo valores: {e}")
+
+            # 4. Tipos de documento - need to advance past initial steps first
+            # The tipo_documento dropdown only appears after clicking "Continuar"
+            # We'll extract from known standard values since they're consistent
+            options['tipos_documento'] = ['DNI', 'CI', 'Pasaporte', 'Otro']
+
+            self.log(f"  Tipos documento: {options['tipos_documento']} (estándar)")
+            self.log(f"✓ Opciones extraídas: {len(options['funciones'])} funciones, "
+                     f"{len(options['sectores'])} sectores, {len(options['valores'])} valores")
+
+            return options
+
+        except Exception as e:
+            self.log(f"✗ Error extrayendo opciones del evento: {e}")
+            return None
+
     def normalize_datetime_string(self, datetime_str):
         """
         Normalize date/time strings from Google Sheets to match website format.
@@ -265,16 +412,30 @@ class TicketAutomation:
 
         datetime_str = datetime_str.strip()
 
+        # Normalize all whitespace variants FIRST (non-breaking spaces, double spaces, etc.)
+        # This is critical for cross-platform matching (website vs Sheets vs user input)
+        normalized = datetime_str
+        normalized = normalized.replace('\u00a0', ' ')  # Non-breaking space
+        normalized = normalized.replace('\u2009', ' ')  # Thin space
+        normalized = normalized.replace('\u202f', ' ')  # Narrow no-break space
+        normalized = re.sub(r'\s+', ' ', normalized)    # Collapse multiple spaces
+        normalized = normalized.strip()
+
+        # Pre-normalize AM/PM BEFORE trying formats
+        # Windows Spanish locale uses "p. m." / "a. m." which no strptime directive handles
+        normalized = normalized.replace('a. m.', 'AM').replace('p. m.', 'PM')
+        normalized = normalized.replace('a.m.', 'AM').replace('p.m.', 'PM')
+        normalized = re.sub(r'(?i)\bam\b', 'AM', normalized)
+        normalized = re.sub(r'(?i)\bpm\b', 'PM', normalized)
+
         # Try multiple common formats from different locales
+        # Note: %P is NOT a valid Python strptime directive - all formats use %p (uppercase AM/PM)
         formats_to_try = [
-            # Windows Spanish/Latin American formats
+            # Windows Spanish/Latin American formats (DD/MM)
             "%d/%m/%Y, %I:%M %p",      # "22/11/2025, 4:00 PM"
-            "%d/%m/%Y, %I:%M %P",      # "22/11/2025, 4:00 p.m." (lowercase)
             "%d/%m/%Y, %I:%M%p",       # "22/11/2025, 4:00PM" (no space)
-            "%d/%m/%Y, %I:%M%P",       # "22/11/2025, 4:00p.m." (lowercase, no space)
-            # US English formats (Mac default)
+            # US English formats (MM/DD, Mac default)
             "%m/%d/%Y, %I:%M %p",      # "11/22/2025, 4:00 PM"
-            "%m/%d/%Y, %I:%M %P",      # "11/22/2025, 4:00 p.m."
             "%m/%d/%Y, %I:%M%p",       # "11/22/2025, 4:00PM"
             # ISO formats
             "%Y-%m-%d %H:%M:%S",       # "2025-11-22 16:00:00"
@@ -284,14 +445,11 @@ class TicketAutomation:
             "%m-%d-%Y, %I:%M %p",      # "11-22-2025, 4:00 PM"
         ]
 
-        # Try parsing with each format
-        for i, fmt in enumerate(formats_to_try):
+        # Try parsing the pre-normalized string with each format
+        for fmt in formats_to_try:
             try:
-                # Parse the datetime
-                dt = datetime.strptime(datetime_str, fmt)
+                dt = datetime.strptime(normalized, fmt)
                 # Return in website's expected format: MM/DD/YYYY, H:MM AM/PM (uppercase)
-                # Note: Use %-I on Unix or remove leading zero manually for Windows compatibility
-                # strftime %I always pads to 2 digits (01-12), but website uses 1 digit for hours < 10
                 result = dt.strftime("%m/%d/%Y, %I:%M %p").upper()
                 # Remove leading zero from hour if present (e.g., "04:00" -> "4:00")
                 result = re.sub(r', 0(\d:\d{2} [AP]M)', r', \1', result)
@@ -299,17 +457,7 @@ class TicketAutomation:
             except ValueError:
                 continue
 
-        # If no format worked, try a more flexible approach
-        # Replace lowercase am/pm with uppercase (handle various formats including "p. m." with space)
-        normalized = datetime_str
-        # Handle formats with space: "a. m." and "p. m."
-        normalized = normalized.replace('a. m.', 'AM').replace('p. m.', 'PM')
-        # Handle formats without space: "a.m." and "p.m."
-        normalized = normalized.replace('a.m.', 'AM').replace('p.m.', 'PM')
-        # Handle simple lowercase: "am" and "pm"
-        normalized = normalized.replace(' am', ' AM').replace(' pm', ' PM')
-
-        # Try to detect DD/MM vs MM/DD and swap if needed
+        # If no format worked, try DD/MM vs MM/DD swap as last resort
         # Look for pattern: DD/MM/YYYY or MM/DD/YYYY
         date_pattern = r'(\d{1,2})/(\d{1,2})/(\d{4})'
         match = re.search(date_pattern, normalized)
@@ -553,6 +701,7 @@ class TicketAutomation:
             else:
                 sheet_id = sheet_url
                 
+            self.gspread_client = client
             self.sheet = client.open_by_key(sheet_id)
             self.log(f"✓ Conectado a Google Sheets")
             return self.sheet
@@ -561,6 +710,151 @@ class TicketAutomation:
             self.log(f"✗ Error conectando Google Sheets: {str(e)}")
             return None
     
+    def create_sheet_template(self, title, event_options, share_email=None):
+        """Create a new Google Sheet template with correct columns and data validation.
+
+        Args:
+            title: Name for the new spreadsheet
+            event_options: Dict from extract_event_options() with 'funciones', 'sectores', 'valores', 'tipos_documento'
+            share_email: Optional email to share the sheet with (editor access)
+
+        Returns:
+            URL of the created spreadsheet, or None on failure
+        """
+        if not self.gspread_client:
+            self.log("✗ No hay conexión a Google Sheets. Conectate primero.")
+            return None
+
+        try:
+            self.log(f"Creando template '{title}'...")
+
+            # Create new spreadsheet
+            spreadsheet = self.gspread_client.create(title)
+            self.log(f"  ✓ Spreadsheet creado")
+
+            # Define columns for each worksheet
+            nominadas_headers = ['Nombre', 'Apellido', 'DNI', 'Tipo', 'Mail', 'Función', 'Sector', 'Valor', 'Resultado', 'Código']
+            innominadas_headers = ['Cantidad', 'DNI', 'Tipo', 'Mail', 'Función', 'Sector', 'Valor', 'Resultado', 'Código']
+
+            # Rename Sheet1 to "Nominadas" and set headers
+            ws_nom = spreadsheet.sheet1
+            ws_nom.update_title("Nominadas")
+            ws_nom.update('A1', [nominadas_headers])
+
+            # Create "Innominadas" worksheet
+            ws_innom = spreadsheet.add_worksheet(title="Innominadas", rows=500, cols=len(innominadas_headers))
+            ws_innom.update('A1', [innominadas_headers])
+
+            self.log(f"  ✓ Hojas creadas: Nominadas, Innominadas")
+
+            # Apply data validation (dropdowns) and formatting via Sheets API batch update
+            validation_requests = []
+
+            for ws, headers in [(ws_nom, nominadas_headers), (ws_innom, innominadas_headers)]:
+                ws_id = ws.id
+
+                for col_name, values_key in [('Tipo', 'tipos_documento'), ('Función', 'funciones'),
+                                              ('Sector', 'sectores'), ('Valor', 'valores')]:
+                    if col_name not in headers:
+                        continue
+                    values = event_options.get(values_key, [])
+                    if not values:
+                        continue
+
+                    col_idx = headers.index(col_name)
+
+                    # Build data validation request for Google Sheets API
+                    validation_requests.append({
+                        "setDataValidation": {
+                            "range": {
+                                "sheetId": ws_id,
+                                "startRowIndex": 1,  # Skip header
+                                "endRowIndex": 500,
+                                "startColumnIndex": col_idx,
+                                "endColumnIndex": col_idx + 1
+                            },
+                            "rule": {
+                                "condition": {
+                                    "type": "ONE_OF_LIST",
+                                    "values": [{"userEnteredValue": v} for v in values]
+                                },
+                                "showCustomUi": True,  # Show as dropdown
+                                "strict": False  # Allow other values too
+                            }
+                        }
+                    })
+
+            # Apply formatting: bold headers, colored background, freeze first row
+            for ws, headers in [(ws_nom, nominadas_headers), (ws_innom, innominadas_headers)]:
+                ws_id = ws.id
+                num_cols = len(headers)
+
+                # Bold + colored header
+                validation_requests.append({
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": ws_id,
+                            "startRowIndex": 0,
+                            "endRowIndex": 1,
+                            "startColumnIndex": 0,
+                            "endColumnIndex": num_cols
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "textFormat": {"bold": True},
+                                "backgroundColor": {"red": 0.85, "green": 0.92, "blue": 1.0}
+                            }
+                        },
+                        "fields": "userEnteredFormat(textFormat,backgroundColor)"
+                    }
+                })
+
+                # Freeze first row
+                validation_requests.append({
+                    "updateSheetProperties": {
+                        "properties": {
+                            "sheetId": ws_id,
+                            "gridProperties": {"frozenRowCount": 1}
+                        },
+                        "fields": "gridProperties.frozenRowCount"
+                    }
+                })
+
+                # Auto-resize columns
+                validation_requests.append({
+                    "autoResizeDimensions": {
+                        "dimensions": {
+                            "sheetId": ws_id,
+                            "dimension": "COLUMNS",
+                            "startIndex": 0,
+                            "endIndex": num_cols
+                        }
+                    }
+                })
+
+            # Execute all formatting/validation in one batch
+            if validation_requests:
+                spreadsheet.batch_update({"requests": validation_requests})
+                self.log(f"  ✓ Validación y formato aplicados")
+
+            # Share with user if email provided
+            if share_email:
+                spreadsheet.share(share_email, perm_type='user', role='writer')
+                self.log(f"  ✓ Compartido con {share_email}")
+
+            # Also make it accessible by anyone with the link (for easy sharing)
+            spreadsheet.share('', perm_type='anyone', role='writer')
+
+            url = spreadsheet.url
+            self.log(f"✓ Template creado: {url}")
+            return url
+
+        except Exception as e:
+            self.log(f"✗ Error creando template: {e}")
+            import traceback
+            self.log(f"  Detalle: {traceback.format_exc()}")
+            return None
+
     def wait_and_click(self, xpath, timeout=None, description="elemento"):
         """Helper para esperar y clickear un elemento con timeout optimizado"""
         # Timeout dinámico basado en modo headless (más rápido en headless)
@@ -625,18 +919,8 @@ class TicketAutomation:
                     self.log(f"⚠️ DNI duplicado detectado (intento {attempt + 1}) - regresando a página de emisión")
 
                     # RECUPERACIÓN: Navegar directamente a página de emisión
-                    try:
-                        if self.selected_event:
-                            self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
-
-                            # Esperar que la página se cargue
-                            WebDriverWait(self.driver, 10).until(
-                                EC.presence_of_element_located((By.XPATH,
-                                    "//button[contains(@id, 'headlessui-listbox-button')] | //input | //form"))
-                            )
-                            self.log("  ✓ Página de emisión lista para siguiente ticket")
-                    except Exception as recovery_error:
-                        self.log(f"  ⚠ Error en recuperación: {str(recovery_error)}")
+                    if self._navigate_to_sale_page():
+                        self.log("  ✓ Página de emisión lista para siguiente ticket")
 
                     return True
                 time.sleep(0.5)
@@ -710,7 +994,8 @@ class TicketAutomation:
                             for li_elem in opciones_li:
                                 try:
                                     span_elem = li_elem.find_element(By.XPATH, ".//span[@class='font-semibold block truncate']")
-                                    if span_elem.text.strip() == matching_option:
+                                    # Use dates_match for consistency (handles whitespace/encoding diffs after re-fetch)
+                                    if self.dates_match(span_elem.text.strip(), matching_option):
                                         funcion_option = li_elem
                                         break
                                 except:
@@ -726,6 +1011,11 @@ class TicketAutomation:
                                 self.log(f"  ✓ Función seleccionada: {funcion}")
                                 time.sleep(0.3)
                             else:
+                                # Debug: show exact bytes to diagnose encoding issues
+                                refetched = [li.find_element(By.XPATH, ".//span[@class='font-semibold block truncate']").text
+                                             for li in opciones_li if li.find_elements(By.XPATH, ".//span[@class='font-semibold block truncate']")]
+                                self.log(f"  DEBUG refetched options: {refetched}")
+                                self.log(f"  DEBUG matching_option repr: {repr(matching_option)}")
                                 raise Exception(f"No se encontró el elemento para '{matching_option}'")
 
                         except Exception as e:
@@ -745,14 +1035,7 @@ class TicketAutomation:
                                     pass
 
                             self.log(f"  ⏭️  Saltando esta entrada...")
-                            # Volver a la página de venta para el siguiente ticket
-                            try:
-                                self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
-                                WebDriverWait(self.driver, 5).until(
-                                    EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
-                                )
-                            except:
-                                pass
+                            self._navigate_to_sale_page()
                             return
 
                     else:
@@ -778,14 +1061,7 @@ class TicketAutomation:
 
                         # SKIP esta entrada
                         self.log(f"  ⏭️  Saltando esta entrada y continuando con la siguiente...")
-                        # Volver a la página de venta para el siguiente ticket
-                        try:
-                            self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
-                            WebDriverWait(self.driver, 5).until(
-                                EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
-                            )
-                        except:
-                            pass
+                        self._navigate_to_sale_page()
                         return
 
                 else:
@@ -885,14 +1161,7 @@ class TicketAutomation:
                             pass
 
                     self.log(f"  ⏭️  Saltando esta entrada...")
-                    # Volver a la página de venta para el siguiente ticket
-                    try:
-                        self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
-                        WebDriverWait(self.driver, 5).until(
-                            EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
-                        )
-                    except:
-                        pass
+                    self._navigate_to_sale_page()
                     return
 
             except Exception as e:
@@ -909,14 +1178,7 @@ class TicketAutomation:
                         pass
 
                 self.log(f"  ⏭️  Saltando esta entrada...")
-                # Volver a la página de venta para el siguiente ticket
-                try:
-                    self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
-                    WebDriverWait(self.driver, 5).until(
-                        EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
-                    )
-                except:
-                    pass
+                self._navigate_to_sale_page()
                 return
 
             # PASO 4: Cantidad (siempre 1, ya viene por defecto)
@@ -1060,14 +1322,7 @@ class TicketAutomation:
 
                             # SKIP esta entrada - volver al dashboard y salir del método
                             self.log(f"  ⏭️  Saltando esta entrada y continuando con la siguiente...")
-                            # Volver a la página de venta para el siguiente ticket
-                            try:
-                                self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
-                                WebDriverWait(self.driver, 5).until(
-                                    EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
-                                )
-                            except:
-                                pass
+                            self._navigate_to_sale_page()
                             return  # Salir del método sin procesar esta entrada
 
                     except Exception as e:
@@ -1097,14 +1352,7 @@ class TicketAutomation:
                             pass
 
                     self.log(f"  ⏭️  Saltando esta entrada...")
-                    # Volver a la página de venta para el siguiente ticket
-                    try:
-                        self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
-                        WebDriverWait(self.driver, 5).until(
-                            EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
-                        )
-                    except:
-                        pass
+                    self._navigate_to_sale_page()
                     return
 
                 self.wait_and_send_keys("holders.0.firstName", nombre, description="nombre")
@@ -1263,27 +1511,12 @@ class TicketAutomation:
                 return ticket_number
             else:
                 self.log("✗ No se pudo capturar el número de ticket")
-                # Intentar volver a la página de venta para el siguiente ticket
-                try:
-                    self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
-                    WebDriverWait(self.driver, 5).until(
-                        EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
-                    )
-                except:
-                    pass
+                self._navigate_to_sale_page()
                 return None
 
         except Exception as e:
             self.log(f"✗ Error en emisión: {str(e)}")
-            # Intentar volver al inicio
-            try:
-                self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
-                # Esperar que la página se cargue antes de continuar
-                WebDriverWait(self.driver, 5).until(
-                    EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
-                )
-            except:
-                pass
+            self._navigate_to_sale_page()
             return None
 
     def emitir_ticket_innominado(self, row_data, row_number):
@@ -1349,7 +1582,8 @@ class TicketAutomation:
                             for li_elem in opciones_li:
                                 try:
                                     span_elem = li_elem.find_element(By.XPATH, ".//span[@class='font-semibold block truncate']")
-                                    if span_elem.text.strip() == matching_option:
+                                    # Use dates_match for consistency (handles whitespace/encoding diffs after re-fetch)
+                                    if self.dates_match(span_elem.text.strip(), matching_option):
                                         funcion_option = li_elem
                                         break
                                 except:
@@ -1365,6 +1599,11 @@ class TicketAutomation:
                                 self.log(f"  ✓ Función seleccionada: {funcion}")
                                 time.sleep(0.3)
                             else:
+                                # Debug: show exact bytes to diagnose encoding issues
+                                refetched = [li.find_element(By.XPATH, ".//span[@class='font-semibold block truncate']").text
+                                             for li in opciones_li if li.find_elements(By.XPATH, ".//span[@class='font-semibold block truncate']")]
+                                self.log(f"  DEBUG refetched options: {refetched}")
+                                self.log(f"  DEBUG matching_option repr: {repr(matching_option)}")
                                 raise Exception(f"No se encontró el elemento para '{matching_option}'")
 
                         except Exception as e:
@@ -1384,14 +1623,7 @@ class TicketAutomation:
                                     pass
 
                             self.log(f"  ⏭️  Saltando esta entrada...")
-                            # Volver a la página de venta para el siguiente ticket
-                            try:
-                                self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
-                                WebDriverWait(self.driver, 5).until(
-                                    EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
-                                )
-                            except:
-                                pass
+                            self._navigate_to_sale_page()
                             return
 
                     else:
@@ -1417,14 +1649,7 @@ class TicketAutomation:
 
                         # SKIP esta entrada
                         self.log(f"  ⏭️  Saltando esta entrada y continuando con la siguiente...")
-                        # Volver a la página de venta para el siguiente ticket
-                        try:
-                            self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
-                            WebDriverWait(self.driver, 5).until(
-                                EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
-                            )
-                        except:
-                            pass
+                        self._navigate_to_sale_page()
                         return
 
                 else:
@@ -1524,14 +1749,7 @@ class TicketAutomation:
                             pass
 
                     self.log(f"  ⏭️  Saltando esta entrada...")
-                    # Volver a la página de venta para el siguiente ticket
-                    try:
-                        self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
-                        WebDriverWait(self.driver, 5).until(
-                            EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
-                        )
-                    except:
-                        pass
+                    self._navigate_to_sale_page()
                     return
 
             except Exception as e:
@@ -1548,14 +1766,7 @@ class TicketAutomation:
                         pass
 
                 self.log(f"  ⏭️  Saltando esta entrada...")
-                # Volver a la página de venta para el siguiente ticket
-                try:
-                    self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
-                    WebDriverWait(self.driver, 5).until(
-                        EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
-                    )
-                except:
-                    pass
+                self._navigate_to_sale_page()
                 return
 
             # PASO 4: Cantidad (DIFERENTE - Leer y llenar cantidad)
@@ -1780,15 +1991,7 @@ class TicketAutomation:
 
         except Exception as e:
             self.log(f"✗ Error en emisión innominada: {str(e)}")
-            # Intentar volver al inicio
-            try:
-                self.driver.get(f"https://pos.buenalive.com/events/{self.selected_event['id']}/sale")
-                # Esperar que la página se cargue antes de continuar
-                WebDriverWait(self.driver, 5).until(
-                    EC.presence_of_element_located((By.XPATH, "//button | //input | //form"))
-                )
-            except:
-                pass
+            self._navigate_to_sale_page()
             return None
 
     def capture_ticket_number(self):
@@ -1999,6 +2202,13 @@ class TicketAutomation:
 # Interfaz gráfica con opción de headless
 class AutomationGUI:
     def __init__(self):
+        # Windows DPI awareness: must be set BEFORE creating Tk root
+        if sys.platform == 'win32':
+            try:
+                import ctypes
+                ctypes.windll.shcore.SetProcessDpiAwareness(1)
+            except (AttributeError, OSError):
+                pass
         self.root = tk.Tk()
         self.root.title(f"Ticketera Buena v{__version__}")
         self.root.geometry("700x800")
@@ -2101,6 +2311,10 @@ class AutomationGUI:
                                                    command=self.start_processing_innominados, state="disabled")
         self.start_innominados_button.pack(side="left", padx=5)
 
+        self.create_template_button = ttk.Button(button_frame, text="Crear Template Sheet",
+                                                  command=self.create_template_dialog, state="disabled")
+        self.create_template_button.pack(side="left", padx=5)
+
         # Log area
         log_frame = ttk.LabelFrame(self.root, text="Log de Procesamiento", padding="10")
         log_frame.pack(fill="both", expand=True, padx=10, pady=5)
@@ -2172,11 +2386,11 @@ class AutomationGUI:
         """Thread de conexión"""
         try:
             if not self.automation.setup_driver():
-                messagebox.showerror("Error", "No se pudo configurar el driver")
+                self.root.after(0, lambda: messagebox.showerror("Error", "No se pudo configurar el driver"))
                 return
-                
+
             if not self.automation.login(email, password):
-                messagebox.showerror("Error", "No se pudo hacer login")
+                self.root.after(0, lambda: messagebox.showerror("Error", "No se pudo hacer login"))
                 return
 
             # Guardar credenciales automáticamente después de login exitoso
@@ -2185,22 +2399,22 @@ class AutomationGUI:
                     self.automation.log("✓ Credenciales guardadas automáticamente")
 
             if not self.automation.connect_google_sheets(sheet_url):
-                messagebox.showerror("Error", "No se pudo conectar a Google Sheets")
+                self.root.after(0, lambda: messagebox.showerror("Error", "No se pudo conectar a Google Sheets"))
                 return
-            
+
             self.automation.log("✓ Sistemas conectados exitosamente")
             self.automation.log("Obteniendo eventos automáticamente...")
 
             # Obtener eventos automáticamente después del login exitoso
-            self.get_events()
+            self.root.after(0, self.get_events)
 
-            self.get_events_button.config(state="normal")
-            
+            self.root.after(0, lambda: self.get_events_button.config(state="normal"))
+
         except Exception as e:
             self.automation.log(f"Error: {str(e)}")
-            messagebox.showerror("Error", str(e))
+            self.root.after(0, lambda: messagebox.showerror("Error", str(e)))
         finally:
-            self.connect_button.config(state="normal")
+            self.root.after(0, lambda: self.connect_button.config(state="normal"))
     
     def get_events(self):
         """Obtiene y muestra los eventos disponibles"""
@@ -2213,8 +2427,9 @@ class AutomationGUI:
 
             self.start_button.config(state="normal")
             self.start_innominados_button.config(state="normal")
+            self.create_template_button.config(state="normal")
             self.automation.log(f"✓ {len(self.available_events)} eventos encontrados")
-            self.automation.log("Seleccioná un evento y dale a 'Iniciar Emisión Nominados' o 'Iniciar Emisión Innominados'")
+            self.automation.log("Seleccioná un evento y dale a 'Iniciar Emisión Nominados', 'Iniciar Emisión Innominados' o 'Crear Template Sheet'")
         else:
             messagebox.showwarning("Advertencia", "No se encontraron eventos")
     
@@ -2247,17 +2462,17 @@ class AutomationGUI:
                 EC.presence_of_element_located((By.XPATH,
                     "//button[contains(@id, 'headlessui-listbox-button')] | //input | //form"))
             )
-            
+
             # Procesar tickets nominados
             self.automation.process_nominadas()
-            
-            messagebox.showinfo("Éxito", "Procesamiento completado. Revisá el log para ver el resumen.")
-            
+
+            self.root.after(0, lambda: messagebox.showinfo("Éxito", "Procesamiento completado. Revisá el log para ver el resumen."))
+
         except Exception as e:
             self.automation.log(f"Error crítico: {str(e)}")
-            messagebox.showerror("Error", f"Error crítico: {str(e)}")
+            self.root.after(0, lambda: messagebox.showerror("Error", f"Error crítico: {str(e)}"))
         finally:
-            self.start_button.config(state="normal")
+            self.root.after(0, lambda: self.start_button.config(state="normal"))
 
     def start_processing_innominados(self):
         """Inicia el procesamiento de tickets innominados"""
@@ -2292,13 +2507,97 @@ class AutomationGUI:
             # Procesar tickets INNOMINADOS
             self.automation.process_innominadas()
 
-            messagebox.showinfo("Éxito", "Procesamiento de innominados completado. Revisá el log para ver el resumen.")
+            self.root.after(0, lambda: messagebox.showinfo("Éxito", "Procesamiento de innominados completado. Revisá el log para ver el resumen."))
 
         except Exception as e:
             self.automation.log(f"Error crítico innominados: {str(e)}")
-            messagebox.showerror("Error", f"Error crítico: {str(e)}")
+            self.root.after(0, lambda: messagebox.showerror("Error", f"Error crítico: {str(e)}"))
         finally:
-            self.start_innominados_button.config(state="normal")
+            self.root.after(0, lambda: self.start_innominados_button.config(state="normal"))
+
+    def create_template_dialog(self):
+        """Show dialog to create a Google Sheet template for the selected event"""
+        selection = self.event_listbox.curselection()
+        if not selection:
+            messagebox.showerror("Error", "Seleccioná un evento primero")
+            return
+
+        selected_index = selection[0]
+        selected_event = self.available_events[selected_index]
+
+        # Ask for sheet name
+        from tkinter import simpledialog
+        sheet_name = simpledialog.askstring(
+            "Nombre del Template",
+            f"Nombre para el Google Sheet:\n(Evento: {selected_event['name']})",
+            initialvalue=f"BuenaLive - {selected_event['name']}",
+            parent=self.root
+        )
+        if not sheet_name:
+            return
+
+        # Ask for email to share with
+        share_email = simpledialog.askstring(
+            "Compartir Sheet",
+            "Email para compartir el Sheet (opcional, dejá vacío para no compartir):",
+            initialvalue=self.email_entry.get(),
+            parent=self.root
+        )
+
+        self.create_template_button.config(state="disabled")
+        self.automation.log(f"\nCreando template para '{selected_event['name']}'...")
+
+        thread = threading.Thread(
+            target=self._create_template_thread,
+            args=(selected_event, sheet_name, share_email))
+        thread.daemon = True
+        thread.start()
+
+    def _create_template_thread(self, selected_event, sheet_name, share_email):
+        """Thread for template creation"""
+        try:
+            # Navigate to the event's sale page to extract options
+            self.automation.selected_event = selected_event
+            self.automation.driver.get(f"https://pos.buenalive.com/events/{selected_event['id']}/sale")
+
+            WebDriverWait(self.automation.driver, 10).until(
+                EC.presence_of_element_located((By.XPATH,
+                    "//button[contains(@id, 'headlessui-listbox-button')] | //input | //form"))
+            )
+
+            # Extract dropdown options from the page
+            event_options = self.automation.extract_event_options()
+            if not event_options:
+                self.root.after(0, lambda: messagebox.showerror("Error", "No se pudieron extraer las opciones del evento"))
+                return
+
+            # Create the template
+            url = self.automation.create_sheet_template(
+                sheet_name,
+                event_options,
+                share_email=share_email if share_email else None
+            )
+
+            if url:
+                def show_success():
+                    response = messagebox.askyesno(
+                        "Template Creado",
+                        f"Template creado exitosamente.\n\n"
+                        f"URL: {url}\n\n"
+                        f"¿Abrir en el navegador?"
+                    )
+                    if response:
+                        import webbrowser
+                        webbrowser.open(url)
+                self.root.after(0, show_success)
+            else:
+                self.root.after(0, lambda: messagebox.showerror("Error", "No se pudo crear el template"))
+
+        except Exception as e:
+            self.automation.log(f"Error creando template: {str(e)}")
+            self.root.after(0, lambda: messagebox.showerror("Error", f"Error creando template: {str(e)}"))
+        finally:
+            self.root.after(0, lambda: self.create_template_button.config(state="normal"))
 
     def check_for_updates_silently(self):
         """Check for updates on startup without blocking UI"""
