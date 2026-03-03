@@ -315,7 +315,8 @@ class TicketAutomation:
         """Extract all dropdown values from the current event's sale page.
 
         Must be called after navigating to the event's /sale page.
-        Opens each dropdown, reads the options, and closes it.
+        Handles cascading dropdowns: Sector is disabled until Función is selected,
+        and Tarifa is disabled until Sector is selected.
 
         Returns:
             dict with keys 'funciones', 'sectores', 'valores', 'tipos_documento',
@@ -326,66 +327,146 @@ class TicketAutomation:
             'funciones': [],
             'sectores': [],
             'valores': [],
-            'tipos_documento': [],
+            'tipos_documento': ['DNI', 'CI', 'Pasaporte', 'Otro'],
         }
 
         try:
             self.log("Extrayendo opciones del evento...")
 
-            # 1. Funciones (first listbox button)
-            try:
-                funcion_buttons = self.driver.find_elements(By.XPATH,
-                    "//button[contains(@id, 'headlessui-listbox-button') and contains(@class, 'cursor-default')]")
-                if funcion_buttons:
-                    self.driver.execute_script("arguments[0].click();", funcion_buttons[0])
-                    time.sleep(0.5)
-                    opciones = self.driver.find_elements(By.XPATH,
-                        "//li[contains(@id, 'headlessui-listbox-option')]//span[@class='font-semibold block truncate']")
-                    options['funciones'] = [opt.text.strip() for opt in opciones if opt.text.strip()]
-                    self.log(f"  Funciones: {options['funciones']}")
-                    # Close dropdown
-                    self.driver.execute_script("document.body.click();")
-                    time.sleep(0.3)
-            except Exception as e:
-                self.log(f"  Error extrayendo funciones: {e}")
+            # Wait for the page to have at least one listbox button
+            WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "button[id*='headlessui-listbox-button']"))
+            )
 
-            # 2. Sectores (second listbox button)
-            try:
-                sector_buttons = self.driver.find_elements(By.XPATH,
-                    "//button[contains(@id, 'headlessui-listbox-button')]")
-                if len(sector_buttons) > 1:
-                    self.driver.execute_script("arguments[0].click();", sector_buttons[1])
-                    time.sleep(0.5)
-                    opciones = self.driver.find_elements(By.XPATH,
-                        "//li[contains(@id, 'headlessui-listbox-option')]//span[@class='font-semibold block truncate']")
-                    options['sectores'] = [opt.text.strip() for opt in opciones if opt.text.strip()]
-                    self.log(f"  Sectores: {options['sectores']}")
-                    self.driver.execute_script("document.body.click();")
-                    time.sleep(0.3)
-            except Exception as e:
-                self.log(f"  Error extrayendo sectores: {e}")
+            # --- 1. Funciones: open dropdown, collect texts, select first to unlock Sector ---
+            funcion_buttons = self.driver.find_elements(By.CSS_SELECTOR,
+                "button[id*='headlessui-listbox-button']")
+            if not funcion_buttons:
+                self.log("  ✗ No se encontraron dropdowns de función")
+                return options
 
-            # 3. Valores/Tarifas (combobox - click to show all, then read)
+            self.driver.execute_script("arguments[0].click();", funcion_buttons[0])
+            time.sleep(0.8)
+
+            funcion_opts = self.driver.find_elements(By.CSS_SELECTOR,
+                "li[id*='headlessui-listbox-option']")
+            options['funciones'] = [opt.text.strip() for opt in funcion_opts if opt.text.strip()]
+            self.log(f"  Funciones: {options['funciones']}")
+
+            if not funcion_opts:
+                self.driver.execute_script("document.body.click();")
+                time.sleep(0.3)
+                return options
+
+            # Select first función (this enables Sector)
+            self.driver.execute_script("arguments[0].click();", funcion_opts[0])
+            time.sleep(1)
+
+            # --- 2. Sectores: wait for enabled, open, collect, select first to unlock Tarifa ---
+            sector_buttons = self.driver.find_elements(By.CSS_SELECTOR,
+                "button[id*='headlessui-listbox-button']")
+            if len(sector_buttons) > 1:
+                sector_btn = sector_buttons[1]
+                # Wait up to 3s for sector to become enabled
+                for _ in range(10):
+                    if not sector_btn.get_attribute('disabled'):
+                        break
+                    time.sleep(0.3)
+                    sector_buttons = self.driver.find_elements(By.CSS_SELECTOR,
+                        "button[id*='headlessui-listbox-button']")
+                    if len(sector_buttons) > 1:
+                        sector_btn = sector_buttons[1]
+
+                self.driver.execute_script("arguments[0].click();", sector_btn)
+                time.sleep(0.8)
+
+                sector_opts = self.driver.find_elements(By.CSS_SELECTOR,
+                    "li[id*='headlessui-listbox-option']")
+                options['sectores'] = [opt.text.strip() for opt in sector_opts if opt.text.strip()]
+                self.log(f"  Sectores: {options['sectores']}")
+
+                if sector_opts:
+                    # Select first sector (this enables Tarifa)
+                    self.driver.execute_script("arguments[0].click();", sector_opts[0])
+                    time.sleep(1)
+
+            # --- 3. Tarifas: wait for enabled, open combobox button, collect ---
             try:
-                tarifa_input = self.driver.find_element(By.XPATH,
-                    "//input[contains(@id, 'headlessui-combobox-input')]")
-                tarifa_input.click()
-                time.sleep(0.5)
-                opciones = self.driver.find_elements(By.XPATH,
-                    "//li[contains(@id, 'headlessui-combobox-option')]")
-                options['valores'] = [opt.text.strip() for opt in opciones if opt.text.strip()]
-                self.log(f"  Valores: {options['valores']}")
-                # Close by pressing Escape
-                tarifa_input.send_keys(Keys.ESCAPE)
+                tarifa_btn = self.driver.find_element(By.CSS_SELECTOR,
+                    "button[id*='headlessui-combobox-button']")
+                # Wait up to 3s for tarifa to become enabled
+                for _ in range(10):
+                    if not tarifa_btn.get_attribute('disabled'):
+                        break
+                    time.sleep(0.3)
+                    tarifa_btn = self.driver.find_element(By.CSS_SELECTOR,
+                        "button[id*='headlessui-combobox-button']")
+
+                self.driver.execute_script("arguments[0].click();", tarifa_btn)
+                time.sleep(0.8)
+
+                tarifa_opts = self.driver.find_elements(By.CSS_SELECTOR,
+                    "li[id*='headlessui-combobox-option']")
+                options['valores'] = [opt.text.strip() for opt in tarifa_opts if opt.text.strip()]
+
+                # Close tarifa dropdown
+                self.driver.execute_script("document.activeElement.blur(); document.body.click();")
                 time.sleep(0.3)
             except Exception as e:
-                self.log(f"  Error extrayendo valores: {e}")
+                self.log(f"  Error extrayendo tarifas del primer sector: {e}")
 
-            # 4. Tipos de documento - need to advance past initial steps first
-            # The tipo_documento dropdown only appears after clicking "Continuar"
-            # We'll extract from known standard values since they're consistent
-            options['tipos_documento'] = ['DNI', 'CI', 'Pasaporte', 'Otro']
+            # --- 4. Check remaining sectors for additional tarifas ---
+            if len(options['sectores']) > 1:
+                for sector_name in options['sectores'][1:]:
+                    try:
+                        # Re-open sector dropdown and select this sector
+                        sector_buttons = self.driver.find_elements(By.CSS_SELECTOR,
+                            "button[id*='headlessui-listbox-button']")
+                        if len(sector_buttons) <= 1:
+                            break
+                        self.driver.execute_script("arguments[0].click();", sector_buttons[1])
+                        time.sleep(0.8)
 
+                        sector_opts = self.driver.find_elements(By.CSS_SELECTOR,
+                            "li[id*='headlessui-listbox-option']")
+                        clicked = False
+                        for opt in sector_opts:
+                            if opt.text.strip() == sector_name:
+                                self.driver.execute_script("arguments[0].click();", opt)
+                                clicked = True
+                                time.sleep(1)
+                                break
+                        if not clicked:
+                            self.driver.execute_script("document.body.click();")
+                            time.sleep(0.3)
+                            continue
+
+                        # Open tarifa and collect additional values
+                        tarifa_btn = self.driver.find_element(By.CSS_SELECTOR,
+                            "button[id*='headlessui-combobox-button']")
+                        for _ in range(10):
+                            if not tarifa_btn.get_attribute('disabled'):
+                                break
+                            time.sleep(0.3)
+                            tarifa_btn = self.driver.find_element(By.CSS_SELECTOR,
+                                "button[id*='headlessui-combobox-button']")
+
+                        self.driver.execute_script("arguments[0].click();", tarifa_btn)
+                        time.sleep(0.8)
+
+                        tarifa_opts = self.driver.find_elements(By.CSS_SELECTOR,
+                            "li[id*='headlessui-combobox-option']")
+                        for opt in tarifa_opts:
+                            valor = opt.text.strip()
+                            if valor and valor not in options['valores']:
+                                options['valores'].append(valor)
+
+                        self.driver.execute_script("document.activeElement.blur(); document.body.click();")
+                        time.sleep(0.3)
+                    except Exception as e:
+                        self.log(f"  Error extrayendo tarifas para sector '{sector_name}': {e}")
+
+            self.log(f"  Valores: {options['valores']}")
             self.log(f"  Tipos documento: {options['tipos_documento']} (estándar)")
             self.log(f"✓ Opciones extraídas: {len(options['funciones'])} funciones, "
                      f"{len(options['sectores'])} sectores, {len(options['valores'])} valores")
@@ -394,6 +475,8 @@ class TicketAutomation:
 
         except Exception as e:
             self.log(f"✗ Error extrayendo opciones del evento: {e}")
+            import traceback
+            self.log(f"  Detalle: {traceback.format_exc()}")
             return None
 
     def normalize_datetime_string(self, datetime_str):
@@ -710,48 +793,101 @@ class TicketAutomation:
             self.log(f"✗ Error conectando Google Sheets: {str(e)}")
             return None
     
+    # Spreadsheet ID used as reusable staging template (overwritten each time)
+    STAGING_TEMPLATE_ID = "15R_wnhpmjmsOj5ZuG4M--wuE33sc5Y32d7cqj5if5wo"
+
     def create_sheet_template(self, title, event_options, share_email=None):
-        """Create a new Google Sheet template with correct columns and data validation.
+        """Prepare a staging Google Sheet template and return a /copy URL.
+
+        Instead of creating a new spreadsheet (which uses the service account's
+        Drive quota), this reuses an existing staging spreadsheet: clears it,
+        populates it with the event's columns/validation, and returns a /copy
+        URL so the user can make their own copy in their Drive.
 
         Args:
-            title: Name for the new spreadsheet
+            title: Name for the template
             event_options: Dict from extract_event_options() with 'funciones', 'sectores', 'valores', 'tipos_documento'
-            share_email: Optional email to share the sheet with (editor access)
+            share_email: Not used (kept for API compat)
 
         Returns:
-            URL of the created spreadsheet, or None on failure
+            /copy URL string, or None on failure
         """
+        # Initialize gspread client if needed (doesn't require a sheet URL)
         if not self.gspread_client:
-            self.log("✗ No hay conexión a Google Sheets. Conectate primero.")
-            return None
+            try:
+                scope = ['https://spreadsheets.google.com/feeds',
+                        'https://www.googleapis.com/auth/drive']
+                if not os.path.exists(self.credentials_file):
+                    self.log("✗ No se encuentra credentials.json de Google")
+                    return None
+                with open(self.credentials_file, 'r', encoding='utf-8-sig') as f:
+                    creds_data = json.load(f)
+                creds = Credentials.from_service_account_info(creds_data, scopes=scope)
+                self.gspread_client = gspread.authorize(creds)
+            except Exception as e:
+                self.log(f"✗ Error conectando a Google: {e}")
+                return None
 
         try:
-            self.log(f"Creando template '{title}'...")
+            self.log(f"Preparando template '{title}'...")
 
-            # Create new spreadsheet
-            spreadsheet = self.gspread_client.create(title)
-            self.log(f"  ✓ Spreadsheet creado")
+            # Open the existing staging template
+            spreadsheet = self.gspread_client.open_by_key(self.STAGING_TEMPLATE_ID)
+
+            # Rename the spreadsheet to match the event
+            spreadsheet.update_title(title)
 
             # Define columns for each worksheet
             nominadas_headers = ['Nombre', 'Apellido', 'DNI', 'Tipo', 'Mail', 'Función', 'Sector', 'Valor', 'Resultado', 'Código']
             innominadas_headers = ['Cantidad', 'DNI', 'Tipo', 'Mail', 'Función', 'Sector', 'Valor', 'Resultado', 'Código']
 
-            # Rename Sheet1 to "Nominadas" and set headers
+            # Prepare worksheets: reuse sheet1 as "Nominadas", ensure "Innominadas" exists
             ws_nom = spreadsheet.sheet1
             ws_nom.update_title("Nominadas")
-            ws_nom.update('A1', [nominadas_headers])
+            ws_nom.clear()
+            ws_nom.update(values=[nominadas_headers], range_name='A1')
 
-            # Create "Innominadas" worksheet
-            ws_innom = spreadsheet.add_worksheet(title="Innominadas", rows=500, cols=len(innominadas_headers))
-            ws_innom.update('A1', [innominadas_headers])
+            # Find or create "Innominadas" sheet
+            ws_innom = None
+            for ws in spreadsheet.worksheets():
+                if ws.title == "Innominadas":
+                    ws_innom = ws
+                    break
+            if ws_innom:
+                ws_innom.clear()
+            else:
+                ws_innom = spreadsheet.add_worksheet(title="Innominadas", rows=500, cols=len(innominadas_headers))
+            ws_innom.update(values=[innominadas_headers], range_name='A1')
 
-            self.log(f"  ✓ Hojas creadas: Nominadas, Innominadas")
+            # Remove any extra worksheets beyond the two we need
+            for ws in spreadsheet.worksheets():
+                if ws.title not in ("Nominadas", "Innominadas"):
+                    try:
+                        spreadsheet.del_worksheet(ws)
+                    except Exception:
+                        pass
 
-            # Apply data validation (dropdowns) and formatting via Sheets API batch update
+            self.log(f"  ✓ Hojas preparadas: Nominadas, Innominadas")
+
+            # Build batch requests for data validation and formatting
             validation_requests = []
 
             for ws, headers in [(ws_nom, nominadas_headers), (ws_innom, innominadas_headers)]:
                 ws_id = ws.id
+
+                # Clear existing data validation on the whole sheet first
+                validation_requests.append({
+                    "setDataValidation": {
+                        "range": {
+                            "sheetId": ws_id,
+                            "startRowIndex": 1,
+                            "endRowIndex": 500,
+                            "startColumnIndex": 0,
+                            "endColumnIndex": len(headers)
+                        },
+                        "rule": None
+                    }
+                })
 
                 for col_name, values_key in [('Tipo', 'tipos_documento'), ('Función', 'funciones'),
                                               ('Sector', 'sectores'), ('Valor', 'valores')]:
@@ -763,12 +899,11 @@ class TicketAutomation:
 
                     col_idx = headers.index(col_name)
 
-                    # Build data validation request for Google Sheets API
                     validation_requests.append({
                         "setDataValidation": {
                             "range": {
                                 "sheetId": ws_id,
-                                "startRowIndex": 1,  # Skip header
+                                "startRowIndex": 1,
                                 "endRowIndex": 500,
                                 "startColumnIndex": col_idx,
                                 "endColumnIndex": col_idx + 1
@@ -778,18 +913,17 @@ class TicketAutomation:
                                     "type": "ONE_OF_LIST",
                                     "values": [{"userEnteredValue": v} for v in values]
                                 },
-                                "showCustomUi": True,  # Show as dropdown
-                                "strict": False  # Allow other values too
+                                "showCustomUi": True,
+                                "strict": False
                             }
                         }
                     })
 
-            # Apply formatting: bold headers, colored background, freeze first row
+            # Formatting: bold headers, colored background, freeze first row
             for ws, headers in [(ws_nom, nominadas_headers), (ws_innom, innominadas_headers)]:
                 ws_id = ws.id
                 num_cols = len(headers)
 
-                # Bold + colored header
                 validation_requests.append({
                     "repeatCell": {
                         "range": {
@@ -809,7 +943,6 @@ class TicketAutomation:
                     }
                 })
 
-                # Freeze first row
                 validation_requests.append({
                     "updateSheetProperties": {
                         "properties": {
@@ -820,7 +953,6 @@ class TicketAutomation:
                     }
                 })
 
-                # Auto-resize columns
                 validation_requests.append({
                     "autoResizeDimensions": {
                         "dimensions": {
@@ -832,25 +964,24 @@ class TicketAutomation:
                     }
                 })
 
-            # Execute all formatting/validation in one batch
             if validation_requests:
                 spreadsheet.batch_update({"requests": validation_requests})
                 self.log(f"  ✓ Validación y formato aplicados")
 
-            # Share with user if email provided
-            if share_email:
-                spreadsheet.share(share_email, perm_type='user', role='writer')
-                self.log(f"  ✓ Compartido con {share_email}")
+            # Ensure the sheet is accessible by anyone with the link (needed for /copy)
+            try:
+                spreadsheet.share('', perm_type='anyone', role='reader')
+            except Exception:
+                pass  # May already be shared
 
-            # Also make it accessible by anyone with the link (for easy sharing)
-            spreadsheet.share('', perm_type='anyone', role='writer')
-
-            url = spreadsheet.url
-            self.log(f"✓ Template creado: {url}")
-            return url
+            # Return /copy URL so the user creates a copy in their own Drive
+            copy_url = f"https://docs.google.com/spreadsheets/d/{self.STAGING_TEMPLATE_ID}/copy"
+            self.log(f"✓ Template listo. Abrí el link para copiarlo a tu Drive:")
+            self.log(f"  {copy_url}")
+            return copy_url
 
         except Exception as e:
-            self.log(f"✗ Error creando template: {e}")
+            self.log(f"✗ Error preparando template: {e}")
             import traceback
             self.log(f"  Detalle: {traceback.format_exc()}")
             return None
@@ -2536,24 +2667,16 @@ class AutomationGUI:
         if not sheet_name:
             return
 
-        # Ask for email to share with
-        share_email = simpledialog.askstring(
-            "Compartir Sheet",
-            "Email para compartir el Sheet (opcional, dejá vacío para no compartir):",
-            initialvalue=self.email_entry.get(),
-            parent=self.root
-        )
-
         self.create_template_button.config(state="disabled")
         self.automation.log(f"\nCreando template para '{selected_event['name']}'...")
 
         thread = threading.Thread(
             target=self._create_template_thread,
-            args=(selected_event, sheet_name, share_email))
+            args=(selected_event, sheet_name))
         thread.daemon = True
         thread.start()
 
-    def _create_template_thread(self, selected_event, sheet_name, share_email):
+    def _create_template_thread(self, selected_event, sheet_name):
         """Thread for template creation"""
         try:
             # Navigate to the event's sale page to extract options
@@ -2571,27 +2694,23 @@ class AutomationGUI:
                 self.root.after(0, lambda: messagebox.showerror("Error", "No se pudieron extraer las opciones del evento"))
                 return
 
-            # Create the template
-            url = self.automation.create_sheet_template(
-                sheet_name,
-                event_options,
-                share_email=share_email if share_email else None
-            )
+            # Prepare the staging template and get /copy URL
+            copy_url = self.automation.create_sheet_template(sheet_name, event_options)
 
-            if url:
+            if copy_url:
                 def show_success():
+                    import webbrowser
                     response = messagebox.askyesno(
-                        "Template Creado",
-                        f"Template creado exitosamente.\n\n"
-                        f"URL: {url}\n\n"
-                        f"¿Abrir en el navegador?"
+                        "Template Listo",
+                        f"Template preparado con los dropdowns del evento.\n\n"
+                        f"Se va a abrir un link para que hagas una copia en tu Google Drive.\n\n"
+                        f"¿Abrir ahora?"
                     )
                     if response:
-                        import webbrowser
-                        webbrowser.open(url)
+                        webbrowser.open(copy_url)
                 self.root.after(0, show_success)
             else:
-                self.root.after(0, lambda: messagebox.showerror("Error", "No se pudo crear el template"))
+                self.root.after(0, lambda: messagebox.showerror("Error", "No se pudo preparar el template"))
 
         except Exception as e:
             self.automation.log(f"Error creando template: {str(e)}")
