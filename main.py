@@ -838,7 +838,7 @@ class TicketAutomation:
             spreadsheet.update_title(title)
 
             # Define columns for each worksheet
-            nominadas_headers = ['Nombre', 'Apellido', 'DNI', 'Tipo', 'Mail', 'Función', 'Sector', 'Valor', 'Resultado', 'Código']
+            nominadas_headers = ['Nombre', 'Apellido', 'DNI', 'Tipo', 'Mail', 'Función', 'Sector', 'Cantidad', 'Valor', 'Resultado', 'Código']
             innominadas_headers = ['Cantidad', 'DNI', 'Tipo', 'Mail', 'Función', 'Sector', 'Valor', 'Resultado', 'Código']
 
             # Prepare worksheets: reuse sheet1 as "Nominadas", ensure "Innominadas" exists
@@ -1094,7 +1094,7 @@ class TicketAutomation:
 
                 # Listar TODAS las opciones disponibles
                 opciones_elements = self.driver.find_elements(By.XPATH,
-                    "//li[contains(@id, 'headlessui-listbox-option')]//span[@class='font-semibold block truncate']")
+                    "//li[contains(@id, 'headlessui-listbox-option')]//span[contains(@class, 'block truncate')]")
                 opciones_disponibles = [opt.text.strip() for opt in opciones_elements]
                 self.log(f"  Opciones de función disponibles: {opciones_disponibles}")
 
@@ -1124,7 +1124,7 @@ class TicketAutomation:
                             funcion_option = None
                             for li_elem in opciones_li:
                                 try:
-                                    span_elem = li_elem.find_element(By.XPATH, ".//span[@class='font-semibold block truncate']")
+                                    span_elem = li_elem.find_element(By.XPATH, ".//span[contains(@class, 'block truncate')]")
                                     # Use dates_match for consistency (handles whitespace/encoding diffs after re-fetch)
                                     if self.dates_match(span_elem.text.strip(), matching_option):
                                         funcion_option = li_elem
@@ -1143,8 +1143,8 @@ class TicketAutomation:
                                 time.sleep(0.3)
                             else:
                                 # Debug: show exact bytes to diagnose encoding issues
-                                refetched = [li.find_element(By.XPATH, ".//span[@class='font-semibold block truncate']").text
-                                             for li in opciones_li if li.find_elements(By.XPATH, ".//span[@class='font-semibold block truncate']")]
+                                refetched = [li.find_element(By.XPATH, ".//span[contains(@class, 'block truncate')]").text
+                                             for li in opciones_li if li.find_elements(By.XPATH, ".//span[contains(@class, 'block truncate')]")]
                                 self.log(f"  DEBUG refetched options: {refetched}")
                                 self.log(f"  DEBUG matching_option repr: {repr(matching_option)}")
                                 raise Exception(f"No se encontró el elemento para '{matching_option}'")
@@ -1397,7 +1397,7 @@ class TicketAutomation:
 
                         # Listar TODAS las opciones disponibles en el dropdown
                         opciones_elements = self.driver.find_elements(By.XPATH,
-                            "//li[contains(@id, 'headlessui-listbox-option')]//span[@class='font-normal block truncate']")
+                            "//li[contains(@id, 'headlessui-listbox-option')]//span[contains(@class, 'block truncate')]")
                         opciones_disponibles = [opt.text.strip() for opt in opciones_elements]
                         self.log(f"  Opciones disponibles en dropdown: {opciones_disponibles}")
 
@@ -1414,7 +1414,7 @@ class TicketAutomation:
                             self.log(f"  ✓ Tipo '{tipo_documento}' coincide con '{matching_tipo}' en el dropdown")
 
                             # XPath que busca el texto exacto dentro del span (usar el matching_tipo del dropdown)
-                            tipo_option_xpath = f"//li[contains(@id, 'headlessui-listbox-option')]//span[@class='font-normal block truncate' and text()='{matching_tipo}']"
+                            tipo_option_xpath = f"//li[contains(@id, 'headlessui-listbox-option')]//span[contains(@class, 'block truncate') and text()='{matching_tipo}']"
 
                             tipo_option = WebDriverWait(self.driver, 5).until(
                                 EC.element_to_be_clickable((By.XPATH, tipo_option_xpath))
@@ -1682,7 +1682,7 @@ class TicketAutomation:
 
                 # Listar TODAS las opciones disponibles
                 opciones_elements = self.driver.find_elements(By.XPATH,
-                    "//li[contains(@id, 'headlessui-listbox-option')]//span[@class='font-semibold block truncate']")
+                    "//li[contains(@id, 'headlessui-listbox-option')]//span[contains(@class, 'block truncate')]")
                 opciones_disponibles = [opt.text.strip() for opt in opciones_elements]
                 self.log(f"  Opciones de función disponibles: {opciones_disponibles}")
 
@@ -1712,7 +1712,7 @@ class TicketAutomation:
                             funcion_option = None
                             for li_elem in opciones_li:
                                 try:
-                                    span_elem = li_elem.find_element(By.XPATH, ".//span[@class='font-semibold block truncate']")
+                                    span_elem = li_elem.find_element(By.XPATH, ".//span[contains(@class, 'block truncate')]")
                                     # Use dates_match for consistency (handles whitespace/encoding diffs after re-fetch)
                                     if self.dates_match(span_elem.text.strip(), matching_option):
                                         funcion_option = li_elem
@@ -1731,8 +1731,8 @@ class TicketAutomation:
                                 time.sleep(0.3)
                             else:
                                 # Debug: show exact bytes to diagnose encoding issues
-                                refetched = [li.find_element(By.XPATH, ".//span[@class='font-semibold block truncate']").text
-                                             for li in opciones_li if li.find_elements(By.XPATH, ".//span[@class='font-semibold block truncate']")]
+                                refetched = [li.find_element(By.XPATH, ".//span[contains(@class, 'block truncate')]").text
+                                             for li in opciones_li if li.find_elements(By.XPATH, ".//span[contains(@class, 'block truncate')]")]
                                 self.log(f"  DEBUG refetched options: {refetched}")
                                 self.log(f"  DEBUG matching_option repr: {repr(matching_option)}")
                                 raise Exception(f"No se encontró el elemento para '{matching_option}'")
