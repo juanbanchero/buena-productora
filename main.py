@@ -1237,56 +1237,59 @@ class TicketAutomation:
             
             # PASO 3: Seleccionar tarifa - usar valor del Sheet
             valor_sheet = str(row_data.get('Valor', '')).strip()
-
             self.log(f"3. Seleccionando tarifa: {valor_sheet}")
 
-            # Extraer la palabra clave para buscar (la primera parte antes del " -")
-            # Ejemplo: "Cortesía - $ 0,00 + $ 0,00" → buscar "Cortesía"
-            buscar_texto = valor_sheet.split(' -')[0].strip() if ' -' in valor_sheet else valor_sheet
-
-            # Detectar si es cortesía (para usar en el paso de selección de pago)
-            es_cortesia = 'cortesía' in buscar_texto.lower() or 'cortesia' in buscar_texto.lower() or '0' in buscar_texto
+            # Detectar si es cortesía
+            es_cortesia = 'cortesía' in valor_sheet.lower() or 'cortesia' in valor_sheet.lower()
 
             try:
-                # Click en el combobox de tarifa
-                tarifa_input = WebDriverWait(self.driver, 5).until(
-                    EC.element_to_be_clickable((By.XPATH, "//input[contains(@id, 'headlessui-combobox-input')]"))
+                # Click en el botón del combobox para abrir dropdown (NO escribir en el input)
+                tarifa_button = WebDriverWait(self.driver, 5).until(
+                    EC.element_to_be_clickable((By.XPATH, "//button[contains(@id, 'headlessui-combobox-button')]"))
                 )
-                tarifa_input.click()
-                time.sleep(0.3)
-
-                # Limpiar el campo y escribir la palabra clave
-                tarifa_input.clear()
-                time.sleep(0.2)
-                tarifa_input.send_keys(buscar_texto)
-                self.log(f"  Buscando en combobox: '{buscar_texto}'")
-
-                # Esperar a que aparezcan las opciones filtradas
+                tarifa_button.click()
                 time.sleep(0.5)
 
-                # Hacer click en la PRIMERA opción que aparezca (ya está filtrada por la búsqueda)
-                try:
-                    primera_opcion = WebDriverWait(self.driver, 3).until(
-                        EC.element_to_be_clickable((By.XPATH, "//li[contains(@id, 'headlessui-combobox-option')][1]"))
-                    )
+                # Obtener TODAS las opciones visibles del dropdown
+                opciones = WebDriverWait(self.driver, 3).until(
+                    EC.presence_of_all_elements_located((By.XPATH, "//li[contains(@id, 'headlessui-combobox-option')]"))
+                )
 
+                # Buscar la opción que matchee exactamente el valor del sheet
+                opcion_encontrada = None
+                for opcion in opciones:
+                    texto_opcion = opcion.text.strip()
+                    if texto_opcion == valor_sheet:
+                        opcion_encontrada = opcion
+                        break
+
+                # Si no hay match exacto, buscar por coincidencia parcial (nombre de tarifa)
+                if not opcion_encontrada:
+                    buscar_texto = valor_sheet.split(' -')[0].strip() if ' -' in valor_sheet else valor_sheet
+                    for opcion in opciones:
+                        texto_opcion = opcion.text.strip()
+                        if texto_opcion.startswith(buscar_texto + ' -'):
+                            if opcion_encontrada is None:
+                                opcion_encontrada = opcion
+                            elif '$ 0,00' not in texto_opcion:
+                                # Preferir la opción con precio real sobre la gratuita
+                                opcion_encontrada = opcion
+
+                if opcion_encontrada:
                     if self.headless_mode:
-                        self.driver.execute_script("arguments[0].click();", primera_opcion)
+                        self.driver.execute_script("arguments[0].click();", opcion_encontrada)
                     else:
-                        primera_opcion.click()
-
-                    self.log(f"  ✓ Tarifa seleccionada (búsqueda: '{buscar_texto}')")
+                        opcion_encontrada.click()
+                    self.log(f"  ✓ Tarifa seleccionada: {opcion_encontrada.text.strip()}")
                     time.sleep(0.3)
-
-                except Exception as e:
-                    # No se encontraron opciones
-                    self.log(f"  ✗ No se encontraron opciones para búsqueda '{buscar_texto}'")
-                    self.log(f"  Error: {e}")
+                else:
+                    nombres_opciones = [o.text.strip() for o in opciones]
+                    self.log(f"  ✗ Tarifa '{valor_sheet}' no encontrada en opciones: {nombres_opciones}")
 
                     # Actualizar Sheet con error
                     if self.sheet:
                         try:
-                            error_msg = f"ERROR: Tarifa '{buscar_texto}' no encontrada"
+                            error_msg = f"ERROR: Tarifa '{valor_sheet}' no encontrada"
                             self.sheet.update_cell(self.current_row, self.get_column_index('Estado'), error_msg)
                         except:
                             pass
@@ -1825,56 +1828,59 @@ class TicketAutomation:
 
             # PASO 3: Seleccionar tarifa - usar valor del Sheet (IDÉNTICO A NOMINADOS)
             valor_sheet = str(row_data.get('Valor', '')).strip()
-
             self.log(f"3. Seleccionando tarifa: {valor_sheet}")
 
-            # Extraer la palabra clave para buscar (la primera parte antes del " -")
-            # Ejemplo: "Cortesía - $ 0,00 + $ 0,00" → buscar "Cortesía"
-            buscar_texto = valor_sheet.split(' -')[0].strip() if ' -' in valor_sheet else valor_sheet
-
-            # Detectar si es cortesía (para usar en el paso de selección de pago)
-            es_cortesia = 'cortesía' in buscar_texto.lower() or 'cortesia' in buscar_texto.lower() or '0' in buscar_texto
+            # Detectar si es cortesía
+            es_cortesia = 'cortesía' in valor_sheet.lower() or 'cortesia' in valor_sheet.lower()
 
             try:
-                # Click en el combobox de tarifa
-                tarifa_input = WebDriverWait(self.driver, 5).until(
-                    EC.element_to_be_clickable((By.XPATH, "//input[contains(@id, 'headlessui-combobox-input')]"))
+                # Click en el botón del combobox para abrir dropdown (NO escribir en el input)
+                tarifa_button = WebDriverWait(self.driver, 5).until(
+                    EC.element_to_be_clickable((By.XPATH, "//button[contains(@id, 'headlessui-combobox-button')]"))
                 )
-                tarifa_input.click()
-                time.sleep(0.3)
-
-                # Limpiar el campo y escribir la palabra clave
-                tarifa_input.clear()
-                time.sleep(0.2)
-                tarifa_input.send_keys(buscar_texto)
-                self.log(f"  Buscando en combobox: '{buscar_texto}'")
-
-                # Esperar a que aparezcan las opciones filtradas
+                tarifa_button.click()
                 time.sleep(0.5)
 
-                # Hacer click en la PRIMERA opción que aparezca (ya está filtrada por la búsqueda)
-                try:
-                    primera_opcion = WebDriverWait(self.driver, 3).until(
-                        EC.element_to_be_clickable((By.XPATH, "//li[contains(@id, 'headlessui-combobox-option')][1]"))
-                    )
+                # Obtener TODAS las opciones visibles del dropdown
+                opciones = WebDriverWait(self.driver, 3).until(
+                    EC.presence_of_all_elements_located((By.XPATH, "//li[contains(@id, 'headlessui-combobox-option')]"))
+                )
 
+                # Buscar la opción que matchee exactamente el valor del sheet
+                opcion_encontrada = None
+                for opcion in opciones:
+                    texto_opcion = opcion.text.strip()
+                    if texto_opcion == valor_sheet:
+                        opcion_encontrada = opcion
+                        break
+
+                # Si no hay match exacto, buscar por coincidencia parcial (nombre de tarifa)
+                if not opcion_encontrada:
+                    buscar_texto = valor_sheet.split(' -')[0].strip() if ' -' in valor_sheet else valor_sheet
+                    for opcion in opciones:
+                        texto_opcion = opcion.text.strip()
+                        if texto_opcion.startswith(buscar_texto + ' -'):
+                            if opcion_encontrada is None:
+                                opcion_encontrada = opcion
+                            elif '$ 0,00' not in texto_opcion:
+                                # Preferir la opción con precio real sobre la gratuita
+                                opcion_encontrada = opcion
+
+                if opcion_encontrada:
                     if self.headless_mode:
-                        self.driver.execute_script("arguments[0].click();", primera_opcion)
+                        self.driver.execute_script("arguments[0].click();", opcion_encontrada)
                     else:
-                        primera_opcion.click()
-
-                    self.log(f"  ✓ Tarifa seleccionada (búsqueda: '{buscar_texto}')")
+                        opcion_encontrada.click()
+                    self.log(f"  ✓ Tarifa seleccionada: {opcion_encontrada.text.strip()}")
                     time.sleep(0.3)
-
-                except Exception as e:
-                    # No se encontraron opciones
-                    self.log(f"  ✗ No se encontraron opciones para búsqueda '{buscar_texto}'")
-                    self.log(f"  Error: {e}")
+                else:
+                    nombres_opciones = [o.text.strip() for o in opciones]
+                    self.log(f"  ✗ Tarifa '{valor_sheet}' no encontrada en opciones: {nombres_opciones}")
 
                     # Actualizar Sheet con error
                     if self.sheet:
                         try:
-                            error_msg = f"ERROR: Tarifa '{buscar_texto}' no encontrada"
+                            error_msg = f"ERROR: Tarifa '{valor_sheet}' no encontrada"
                             self.sheet.update_cell(self.current_row, self.get_column_index('Estado'), error_msg)
                         except:
                             pass
