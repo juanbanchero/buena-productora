@@ -1239,9 +1239,6 @@ class TicketAutomation:
             valor_sheet = str(row_data.get('Valor', '')).strip()
             self.log(f"3. Seleccionando tarifa: {valor_sheet}")
 
-            # Detectar si es cortesía
-            es_cortesia = 'cortesía' in valor_sheet.lower() or 'cortesia' in valor_sheet.lower()
-
             try:
                 # Click en el botón del combobox para abrir dropdown (NO escribir en el input)
                 tarifa_button = WebDriverWait(self.driver, 5).until(
@@ -1577,28 +1574,34 @@ class TicketAutomation:
             try:
                 WebDriverWait(self.driver, 10).until(
                     EC.presence_of_element_located((By.XPATH,
-                        "//div[@role='radiogroup']//p[text()='Cortesía']"))
+                        "//div[@role='radiogroup'] | //button[@type='submit' and contains(., 'Pagar')]"))
                 )
                 self.log("✓ Opciones de pago cargadas correctamente")
                 time.sleep(0.5)  # Micro-delay para estabilización
             except TimeoutException:
                 self.log("⚠ Opciones de pago tardaron en cargar")
 
-            # PASO 14: Seleccionar Cortesía ANTES de pagar (si es cortesía)
-            if es_cortesia:
-                self.log("14. Seleccionando Cortesía antes del pago...")
-
-                cortesia_seleccionada = self.wait_and_click(
-                    "//div[@role='radiogroup']//p[text()='Cortesía']/ancestor::div[@role='radio']",
-                    timeout=5,
-                    description="botón radio Cortesía"
-                )
-
-                if cortesia_seleccionada:
-                    self.log("  ✓ Cortesía seleccionada exitosamente")
+            # PASO 14: Seleccionar Cortesía como forma de pago si está disponible
+            # (aplica para cualquier tarifa de $0, no solo las que se llaman "Cortesía")
+            try:
+                cortesia_radio = self.driver.find_elements(By.XPATH,
+                    "//div[@role='radiogroup']//p[text()='Cortesía']/ancestor::div[@role='radio']")
+                if cortesia_radio:
+                    self.log("14. Seleccionando Cortesía como forma de pago...")
+                    cortesia_seleccionada = self.wait_and_click(
+                        "//div[@role='radiogroup']//p[text()='Cortesía']/ancestor::div[@role='radio']",
+                        timeout=5,
+                        description="botón radio Cortesía"
+                    )
+                    if cortesia_seleccionada:
+                        self.log("  ✓ Cortesía seleccionada exitosamente")
+                    else:
+                        self.log("  ⚠ No se pudo seleccionar Cortesía, continuando...")
                 else:
-                    self.log("  ⚠ No se pudo seleccionar Cortesía, continuando...")
-            
+                    self.log("14. No se encontró opción Cortesía (pago normal)")
+            except Exception:
+                self.log("14. No se encontró opción Cortesía (pago normal)")
+
             # PASO 15: Pagar
             self.log("15. Confirmando pago...")
             pagar = self.wait_and_click(
@@ -1830,9 +1833,6 @@ class TicketAutomation:
             valor_sheet = str(row_data.get('Valor', '')).strip()
             self.log(f"3. Seleccionando tarifa: {valor_sheet}")
 
-            # Detectar si es cortesía
-            es_cortesia = 'cortesía' in valor_sheet.lower() or 'cortesia' in valor_sheet.lower()
-
             try:
                 # Click en el botón del combobox para abrir dropdown (NO escribir en el input)
                 tarifa_button = WebDriverWait(self.driver, 5).until(
@@ -2057,27 +2057,33 @@ class TicketAutomation:
             try:
                 WebDriverWait(self.driver, 10).until(
                     EC.presence_of_element_located((By.XPATH,
-                        "//div[@role='radiogroup']//p[text()='Cortesía']"))
+                        "//div[@role='radiogroup'] | //button[@type='submit' and contains(., 'Pagar')]"))
                 )
                 self.log("✓ Opciones de pago cargadas correctamente")
                 time.sleep(0.5)  # Micro-delay para estabilización
             except TimeoutException:
                 self.log("⚠ Opciones de pago tardaron en cargar")
 
-            # PASO 13: Seleccionar Cortesía ANTES de pagar (si es cortesía)
-            if es_cortesia:
-                self.log("13. Seleccionando Cortesía antes del pago...")
-
-                cortesia_seleccionada = self.wait_and_click(
-                    "//div[@role='radiogroup']//p[text()='Cortesía']/ancestor::div[@role='radio']",
-                    timeout=5,
-                    description="botón radio Cortesía"
-                )
-
-                if cortesia_seleccionada:
-                    self.log("  ✓ Cortesía seleccionada exitosamente")
+            # PASO 13: Seleccionar Cortesía como forma de pago si está disponible
+            # (aplica para cualquier tarifa de $0, no solo las que se llaman "Cortesía")
+            try:
+                cortesia_radio = self.driver.find_elements(By.XPATH,
+                    "//div[@role='radiogroup']//p[text()='Cortesía']/ancestor::div[@role='radio']")
+                if cortesia_radio:
+                    self.log("13. Seleccionando Cortesía como forma de pago...")
+                    cortesia_seleccionada = self.wait_and_click(
+                        "//div[@role='radiogroup']//p[text()='Cortesía']/ancestor::div[@role='radio']",
+                        timeout=5,
+                        description="botón radio Cortesía"
+                    )
+                    if cortesia_seleccionada:
+                        self.log("  ✓ Cortesía seleccionada exitosamente")
+                    else:
+                        self.log("  ⚠ No se pudo seleccionar Cortesía, continuando...")
                 else:
-                    self.log("  ⚠ No se pudo seleccionar Cortesía, continuando...")
+                    self.log("13. No se encontró opción Cortesía (pago normal)")
+            except Exception:
+                self.log("13. No se encontró opción Cortesía (pago normal)")
 
             # PASO 14: Pagar
             self.log("14. Confirmando pago...")
