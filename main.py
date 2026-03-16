@@ -1273,11 +1273,12 @@ class TicketAutomation:
                                 opcion_encontrada = opcion
 
                 if opcion_encontrada:
+                    texto_seleccionado = opcion_encontrada.text.strip()
                     if self.headless_mode:
                         self.driver.execute_script("arguments[0].click();", opcion_encontrada)
                     else:
                         opcion_encontrada.click()
-                    self.log(f"  ✓ Tarifa seleccionada: {opcion_encontrada.text.strip()}")
+                    self.log(f"  ✓ Tarifa seleccionada: {texto_seleccionado}")
                     time.sleep(0.3)
                 else:
                     nombres_opciones = [o.text.strip() for o in opciones]
@@ -1867,11 +1868,12 @@ class TicketAutomation:
                                 opcion_encontrada = opcion
 
                 if opcion_encontrada:
+                    texto_seleccionado = opcion_encontrada.text.strip()
                     if self.headless_mode:
                         self.driver.execute_script("arguments[0].click();", opcion_encontrada)
                     else:
                         opcion_encontrada.click()
-                    self.log(f"  ✓ Tarifa seleccionada: {opcion_encontrada.text.strip()}")
+                    self.log(f"  ✓ Tarifa seleccionada: {texto_seleccionado}")
                     time.sleep(0.3)
                 else:
                     nombres_opciones = [o.text.strip() for o in opciones]
